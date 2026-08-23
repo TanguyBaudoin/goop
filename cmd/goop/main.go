@@ -1,4 +1,4 @@
-// Command goop is the CLI. See package-manager-spec.md for the full
+// Command goop is the CLI. See REQUIREMENTS.md for the full
 // design and ARCHITECTURE.md for how the pieces fit together.
 package main
 
@@ -211,13 +211,13 @@ func printUsage() {
 	cmd("", "depends resolve recursively, with cycle + conflict detection (A4)")
 	cmd("", "or maven:[reponame/]groupId:artifactId:version:classifier:packaging -- needs `goop maven-repo add` first")
 	cmd("goop uninstall <name>... [--force]", "refuses if still referenced by another profile unless --force (see `goop why`)")
-	cmd("goop update [name]... [--no-update]", "upgrade to the bucket's current version; all installed if none given (EXF-05)")
+	cmd("goop update [name]... [--no-update]", "upgrade to the bucket's current version; all installed if none given (FR-05)")
 	cmd("", "refreshes buckets first if stale -- without that it would report 'up to date' against old data")
 	fmt.Fprintln(os.Stderr)
 
 	section("inspect")
 	cmd("goop list [--tree]", "installed apps; --tree groups them by profile, nesting dependencies")
-	cmd("goop info <name>", "full provenance: URL(s), hash(es), bucket, install time (EXF-42)")
+	cmd("goop info <name>", "full provenance: URL(s), hash(es), bucket, install time (FR-42)")
 	cmd("goop depends <spec>", "full dependency closure in install order, the app itself last")
 	cmd("", "includes the extraction helpers (7zip/innounp/dark) an install would pull in")
 	cmd("goop download <spec>...", "fetch + hash-verify into the cache without installing (prime an offline sync)")
@@ -233,7 +233,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr)
 
 	section("buckets")
-	cmd("goop bucket add <name> <url> [git|archive]", "archive needs no Git (EXF-21); auto-detected from the URL")
+	cmd("goop bucket add <name> <url> [git|archive]", "archive needs no Git (FR-21); auto-detected from the URL")
 	cmd("goop bucket remove <name>", "drops the config entry and deletes the local clone; already-installed apps are unaffected")
 	cmd("goop bucket priority <name> <n>", "n=1 is searched first, so it wins when several buckets carry the same app")
 	cmd("goop bucket list", "")
@@ -262,25 +262,25 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr)
 
 	section("reproducibility")
-	cmd("goop lock [--as <profile>|--file <path>]", "snapshot installed apps (EXF-10)")
+	cmd("goop lock [--as <profile>|--file <path>]", "snapshot installed apps (FR-10)")
 	cmd("", "--file writes the lockfile wherever you want -- keep it in the project repo it pins, like Cargo.lock")
-	cmd("goop sync [--profile <name>|--file <path>]", "install exactly that state, no bucket resolution (EXF-11)")
+	cmd("goop sync [--profile <name>|--file <path>]", "install exactly that state, no bucket resolution (FR-11)")
 	cmd("", "a pinned entry installs from its frozen version/URL/hash -- how you go back to an older baseline")
-	cmd("goop status [--profile <name>|--file <path>]", "report drift; exit 3 if any (EXF-12)")
+	cmd("goop status [--profile <name>|--file <path>]", "report drift; exit 3 if any (FR-12)")
 	fmt.Fprintln(os.Stderr)
 
 	section("auth")
 	cmd("goop auth add <host> bearer <token>", "")
 	cmd("goop auth add <host> basic <user> <password>", "")
 	cmd("goop auth remove <host>", "")
-	cmd("goop auth list", "hosts + type only, secrets are never shown (EXF-34)")
+	cmd("goop auth list", "hosts + type only, secrets are never shown (FR-34)")
 	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Credentials resolve env var -> Credential Manager -> anonymous (EXF-33)."))
+	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Credentials resolve env var -> Credential Manager -> anonymous (FR-33)."))
 	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Env var for a host: GOOP_AUTH_<HOST>, set to \"bearer:<token>\" or \"basic:<user>:<password>\"."))
 	fmt.Fprintln(os.Stderr)
 
 	section("provenance & signatures")
-	cmd("goop verify <file> <sigfile> <pubkey>", "verify a minisign signature (EXF-41/A5)")
+	cmd("goop verify <file> <sigfile> <pubkey>", "verify a minisign signature (FR-41/A5)")
 	fmt.Fprintln(os.Stderr)
 
 	section("config")

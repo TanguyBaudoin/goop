@@ -381,7 +381,7 @@ func List() ([]Record, error) {
 // never write into the Scoop tree).
 // Info returns appName's full install record -- its resolved URLs,
 // hashes, bucket, architecture, and install time, i.e. everything
-// needed to answer "where did this actually come from" (EXF-42
+// needed to answer "where did this actually come from" (FR-42
 // provenance traceability).
 func Info(appName string) (Record, error) {
 	rec, ok := readCurrentRecord(appName)

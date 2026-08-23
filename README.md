@@ -1,9 +1,9 @@
 # goop
 
 Scoop-compatible Windows package manager — replacement executor, same
-manifest corpus. See [`package-manager-spec.md`](package-manager-spec.md)
-(and the French original, [`cahier-des-charges-package-manager.md`](cahier-des-charges-package-manager.md))
-for the full requirements and milestone plan.
+manifest corpus. See [`REQUIREMENTS.md`](REQUIREMENTS.md) for the full
+requirements, each with its implementation status, and the milestone
+plan.
 
 ## Status
 
@@ -62,11 +62,11 @@ any other CLI's completion script — they shell back out to hidden
 `goop completion __apps`/`__available`/`__buckets` helpers (plain
 names, one per line, no color/table formatting) for the dynamic parts.
 
-**`goop update [name]...`** (EXF-05) — upgrades installed apps to their
+**`goop update [name]...`** (FR-05) — upgrades installed apps to their
 bucket's current version, reusing the exact same atomic install pipeline
 as `install`/`sync` (an update is just an install whose target happens
 to already exist at an older version). This was a genuine gap this
-project shipped for a while: EXF-05 is a *Blocking* J1 core requirement
+project shipped for a while: FR-05 is a *Blocking* J1 core requirement
 ("update a package or all"), missed entirely until it was pointed out —
 worth calling out plainly rather than glossing over, since the gap
 existed the whole time `install`/`sync`/`status` were being built and
@@ -75,7 +75,7 @@ synthetic version bump (a local test bucket's manifest edited from
 1.0.0 to 2.0.0, confirming the actual upgrade path: new version
 installed, `current` repointed, old version preserved per NR-03).
 
-- Provenance (EXF-42): `goop info <name>` shows exactly where an
+- Provenance (FR-42): `goop info <name>` shows exactly where an
   installed app came from — resolved URL(s), hash(es), bucket,
   architecture, install time — plus a manifest's `description`/
   `homepage`/`license` (captured at install time, so still shown even
@@ -92,7 +92,7 @@ installed, `current` repointed, old version preserved per NR-03).
   pins. Going back to an older baseline is then just checking out an
   older commit and running `goop sync --file ./that.lock.json`: a pinned
   entry installs straight from its frozen version/URL/hash and never
-  consults the bucket (EXF-11), which is what makes installing a
+  consults the bucket (FR-11), which is what makes installing a
   no-longer-current version possible at all.
 - **Bucket priority is yours to set.** Buckets are searched in the order
   `goop bucket list` shows (now numbered), first match wins, and
@@ -156,7 +156,7 @@ installed, `current` repointed, old version preserved per NR-03).
   directory is not empty" because it assumed a junction and ran `rmdir`
   without `/S`, making the app impossible to remove through goop. Both
   paths now detect a real directory and handle it.
-- Signature verification (A5/EXF-41): `goop verify <file> <sigfile>
+- Signature verification (A5/FR-41): `goop verify <file> <sigfile>
   <pubkey>` checks a minisign signature (Ed25519, verified against
   the real `minisign.exe` tool's own output — including the
   BLAKE2b-512 hashed-message mode and the separate trusted-comment
@@ -166,13 +166,13 @@ installed, `current` repointed, old version preserved per NR-03).
   ecosystem today — same situation A4's version constraints were in
   before `goop install name@constraint` gave them one.
 
-- Version-constrained dependencies (A4, EXF-06): `depends` entries and
+- Version-constrained dependencies (A4, FR-06): `depends` entries and
   install specs both use `[bucket/]name[@constraint]` (e.g.
   `extras/mpv@>=0.40`), resolved recursively before the app itself,
   cycle-detected, with version conflicts reported clearly rather than
   silently mis-resolved. Verified against a real chain (`navi`→`fzf`)
   plus synthetic conflict/cycle cases.
-- Git-less buckets (EXF-21): `goop bucket add <name> <url> [git|archive]`
+- Git-less buckets (FR-21): `goop bucket add <name> <url> [git|archive]`
   fetches a plain `.zip`/`.tar.gz`/`.tar` (auto-detected, including
   GitHub codeload URLs) with no Git involved. Verified against the real
   `ScoopInstaller/Main` bucket via its GitHub archive URL.
@@ -197,7 +197,7 @@ installed, `current` repointed, old version preserved per NR-03).
   installer's script expects a `$PLUGINSDIR` structure goop's
   extraction doesn't currently produce.
 
-- Lockfile + `sync` (A3, EXF-10–13): `goop lock` snapshots installed
+- Lockfile + `sync` (A3, FR-10–13): `goop lock` snapshots installed
   apps to `goop.lock.json` (name-sorted, byte-stable across
   regenerations — diffs cleanly in version control). `goop sync`
   installs exactly that state from the lockfile's own frozen
@@ -242,7 +242,7 @@ installed, `current` repointed, old version preserved per NR-03).
   byte-range requests instead of one stream. Downloads sharing a cache
   entry are safely serialized; a batch install/sync is race-detector
   clean.
-- Host-based auth (A2, EXF-30–35): `goop auth add/remove/list` stores
+- Host-based auth (A2, FR-30–35): `goop auth add/remove/list` stores
   Bearer/Basic credentials in the real Windows Credential Manager
   (DPAPI, per-user), keyed strictly by host — never written into a
   manifest or a URL. Resolution is env var (`GOOP_AUTH_<HOST>`, for CI)
@@ -394,17 +394,17 @@ See the spec's §11 milestone table.
 cmd/shim        native shim binary (J0)
 cmd/goop        CLI: install / uninstall / update / list / bucket / maven-repo / import / migrate / lock / sync / status / profile / why / auth / config / completion
 internal/manifest    Scoop manifest decoding + architecture resolution (CPT-01, CPT-02)
-internal/bucket      Git-backed bucket management + manifest lookup (EXF-20, EXF-22)
+internal/bucket      Git-backed bucket management + manifest lookup (FR-20, FR-22)
 internal/downloader  fetch + hash verification (FR-40), bounded timeouts, chunked Range downloads (TR-03)
 internal/archive     zip/tar extraction, extract_dir/extract_to, zip-slip guarded
 internal/pwsh        delegates installer/uninstaller/pre_install/post_install to real pwsh (CPT-04)
 internal/envvars     env_set/env_add_path via HKCU\Environment (CPT-03)
-internal/lockfile    reproducibility: goop.lock.json read/write (EXF-10, EXF-13)
+internal/lockfile    reproducibility: goop.lock.json read/write (FR-10, FR-13)
 internal/profile     user-curated named app groups + active-profile state, reuses internal/lockfile's format
-internal/credstore   Windows Credential Manager bindings (EXF-32)
-internal/auth        per-host credential resolution + HTTP RoundTripper (EXF-30–35)
+internal/credstore   Windows Credential Manager bindings (FR-32)
+internal/auth        per-host credential resolution + HTTP RoundTripper (FR-30–35)
 internal/vercmp      version comparison + constraint satisfaction (A4, D3)
-internal/minisign    minisign signature verification (A5, EXF-41)
+internal/minisign    minisign signature verification (A5, FR-41)
 internal/maven       Maven coordinate -> artifact URL + .sha1 hash, no manifest involved
 internal/mavenrepo   named, priority-ordered Maven repo config (mirrors internal/bucket's list shape)
 internal/installer   install/uninstall/update/list/info/import/migrate/lock/sync orchestration, junctions, shims, shortcuts, concurrency (A1)
@@ -485,7 +485,7 @@ args = "optional default args"
   and no new process group is created)
 
 `cmd/goop install` hard-links this same binary per `bin` entry
-(EXT-24) and writes matching sidecars pointed through the app's
+(TR-24) and writes matching sidecars pointed through the app's
 `current` junction, so an upgrade never has to touch existing shims.
 
 ## The core (J1) and compatibility (J2)

@@ -1,8 +1,8 @@
-// Package auth implements EXF-30 through EXF-35: per-host HTTP
+// Package auth implements FR-30 through FR-35: per-host HTTP
 // authentication, resolved env-var-first then Credential Manager
-// (EXF-33), injected only as an Authorization header on requests to
+// (FR-33), injected only as an Authorization header on requests to
 // that exact host -- never written into a manifest, never put in a URL
-// (EXF-30, EXF-35). This is the architecture invariant from the spec:
+// (FR-30, FR-35). This is the architecture invariant from the spec:
 // auth is a transport-layer concern the downloader knows nothing about.
 package auth
 
@@ -32,7 +32,7 @@ func EnvVarName(host string) string {
 	return b.String()
 }
 
-// resolve finds the Authorization header value for host, per EXF-33:
+// resolve finds the Authorization header value for host, per FR-33:
 // environment variable, then Credential Manager, then anonymous
 // (ok=false, err=nil).
 func resolve(host string) (headerValue string, ok bool, err error) {
@@ -87,7 +87,7 @@ func basicHeader(user, pass string) string {
 
 // Transport wraps Base, injecting a per-host Authorization header. It's
 // the only place in goop a credential value is ever read; every error
-// path below names the host, never the resolved header/secret (EXF-35).
+// path below names the host, never the resolved header/secret (FR-35).
 type Transport struct {
 	Base http.RoundTripper
 }

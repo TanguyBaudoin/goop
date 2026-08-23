@@ -30,7 +30,7 @@ import (
 // default client has no timeout at all. The overall per-download timeout
 // (generous, since real packages can be hundreds of MB) is applied via
 // context in fetch, separately from these connection-phase timeouts.
-// auth.Transport is the sole place a per-host credential (EXF-30) is
+// auth.Transport is the sole place a per-host credential (FR-30) is
 // ever added to a request -- every request this package makes, chunked
 // or not, goes through it.
 var httpClient = &http.Client{
@@ -189,7 +189,7 @@ func Get(cacheDir, url, filename, expectedHash string) (string, error) {
 // FetchUnverified downloads url to destPath as-is, through the same
 // authenticated, timeout-bounded client as Get, but with no hash to
 // check -- for content that doesn't come with a pinned hash to verify
-// against, like a Git-less bucket's archive (EXF-21). Package assets
+// against, like a Git-less bucket's archive (FR-21). Package assets
 // must always go through Get instead (FR-40).
 func FetchUnverified(url, destPath string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), overallTimeout)

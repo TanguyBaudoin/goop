@@ -18,7 +18,7 @@ type UpdateResult struct {
 // Update re-resolves appName against the bucket it was originally
 // installed from (falling back to normal priority search if that's
 // unknown, e.g. for an app imported without one) and installs the
-// current version if it differs from what's installed (EXF-05). Reuses
+// current version if it differs from what's installed (FR-05). Reuses
 // the same atomic install pipeline as Install/Sync -- an update is just
 // an install where the target happens to already exist at an older
 // version, not a separate code path.

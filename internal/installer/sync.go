@@ -12,7 +12,7 @@ import (
 )
 
 // Lock snapshots every currently-installed app into profileName's
-// membership file (EXF-10) -- profileName defaults to the active profile
+// membership file (FR-10) -- profileName defaults to the active profile
 // (profile.Active()) when empty, so plain `goop lock` still targets
 // whatever profile is currently in use (profile.Default,
 // "<root>/goop.lock.json", if none has ever been activated -- unchanged
@@ -71,7 +71,7 @@ type SyncChange struct {
 // already installed at exactly that version -- profileName defaults to
 // the active profile when empty, same as Lock. A pinned entry (from a
 // snapshot via Lock) uses ONLY its own frozen fields, never a bucket
-// (EXF-11: deterministic, no resolution step). A bare entry (from
+// (FR-11: deterministic, no resolution step). A bare entry (from
 // `goop profile add`, no pinned version/URLs/hashes -- declarative
 // authoring, not a snapshot) has nothing frozen to install from, so it
 // resolves live via the normal bucket path instead, same as
@@ -210,7 +210,7 @@ type DriftEntry struct {
 }
 
 // Status compares profileName's membership file against installed state
-// without changing anything (EXF-12), for CI drift detection.
+// without changing anything (FR-12), for CI drift detection.
 // profileName defaults to the active profile when empty, same as Lock.
 func Status(profileName string) ([]DriftEntry, error) {
 	if profileName == "" {

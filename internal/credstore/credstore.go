@@ -1,5 +1,5 @@
 // Package credstore stores per-host credentials in the Windows
-// Credential Manager (EXF-32: DPAPI-backed, per-user isolated -- the
+// Credential Manager (FR-32: DPAPI-backed, per-user isolated -- the
 // OS handles the encryption, goop never does). Entries are namespaced
 // under a "goop:auth:" TargetName prefix so goop never touches another
 // application's stored credentials.
@@ -57,7 +57,7 @@ type credentialW struct {
 	UserName           *uint16
 }
 
-// Entry is one stored host credential's non-secret metadata (EXF-34:
+// Entry is one stored host credential's non-secret metadata (FR-34:
 // list must never expose the secret, so Entry structurally can't carry
 // one).
 type Entry struct {
@@ -166,7 +166,7 @@ func Delete(host string) error {
 }
 
 // List returns every host goop has a stored credential for, with its
-// auth type but never its secret (EXF-34).
+// auth type but never its secret (FR-34).
 func List() ([]Entry, error) {
 	filterPtr, err := syscall.UTF16PtrFromString(targetPrefix + "*")
 	if err != nil {

@@ -1,7 +1,7 @@
 // Package bucket manages Scoop-compatible manifest buckets: Git
-// repositories cloned locally (EXF-20, the default), or plain archives
-// served by an artifact host with no Git involved (EXF-21) -- searched
-// in priority order to resolve an app name to a manifest (EXF-22).
+// repositories cloned locally (FR-20, the default), or plain archives
+// served by an artifact host with no Git involved (FR-21) -- searched
+// in priority order to resolve an app name to a manifest (FR-22).
 package bucket
 
 import (
@@ -50,7 +50,7 @@ const (
 
 // Entry is one configured bucket: a name, its source URL, and how it
 // was fetched. Priority is the order entries appear in Config.Buckets --
-// earlier wins on name collisions (EXF-22).
+// earlier wins on name collisions (FR-22).
 type Entry struct {
 	Name string `json:"name"`
 	URL  string `json:"url"`
@@ -134,9 +134,9 @@ func archiveExt(rawURL string) string {
 }
 
 // Add fetches url as a new bucket named name and appends it (lowest
-// priority) to the config. kind selects git (EXF-20, the default -- Git
+// priority) to the config. kind selects git (FR-20, the default -- Git
 // is delegated to, consistent with how Scoop itself depends on it) or
-// archive (EXF-21, no Git required); pass "" to auto-detect from url's
+// archive (FR-21, no Git required); pass "" to auto-detect from url's
 // extension, defaulting to git.
 func Add(name, url string, kind Kind) error {
 	if name == "" {
@@ -361,7 +361,7 @@ func hoistSingleSubdir(dir string) error {
 	return os.Remove(wrapper)
 }
 
-// Update refreshes bucket name (EXF-23, incremental for git; a fresh
+// Update refreshes bucket name (FR-23, incremental for git; a fresh
 // download+extract for archive buckets, which have no incremental
 // mechanism of their own).
 func Update(name string) error {

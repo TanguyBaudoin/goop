@@ -1,7 +1,7 @@
 // Package archive extracts downloaded manifest assets. J1 supports zip
 // (archive/zip, no external dependency); the remaining CPT-05 formats
 // (7z, MSI, InnoSetup, NSIS) are J2 scope, delegated to 7z.exe/dark.exe
-// per EXT-06.
+// per TR-06.
 package archive
 
 import (

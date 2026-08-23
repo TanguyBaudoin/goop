@@ -1,8 +1,8 @@
 // Package lockfile implements goop's reproducibility layer (A3):
-// EXF-10, a versionable lockfile capturing name/version/bucket/resolved
+// FR-10, a versionable lockfile capturing name/version/bucket/resolved
 // URL/hash/architecture (plus Bin/ExtractDirs/ExtractTos, goop's own
 // addition beyond that minimum -- needed so a synced install actually
-// gets working shims without consulting a bucket at all, per EXF-11).
+// gets working shims without consulting a bucket at all, per FR-11).
 package lockfile
 
 import (
@@ -17,7 +17,7 @@ import (
 )
 
 // FileName is the lockfile's name at the root of a goop install
-// (EXF-13: plain text, meant to be diffed and checked into version
+// (FR-13: plain text, meant to be diffed and checked into version
 // control alongside whatever else describes a machine's setup).
 const FileName = "goop.lock.json"
 
@@ -41,7 +41,7 @@ type Entry struct {
 
 // File is the on-disk lockfile: just a name-sorted list of entries, so
 // two runs over the same installed state produce a byte-identical file
-// and a real diff shows only what actually changed (EXF-13).
+// and a real diff shows only what actually changed (FR-13).
 type File struct {
 	Entries []Entry `json:"entries"`
 }

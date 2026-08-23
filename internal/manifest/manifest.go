@@ -90,7 +90,7 @@ type Manifest struct {
 	// Notes is free-text shown after a successful install (real Scoop's
 	// show_notes, lib/install.ps1) -- often the only place a manifest
 	// documents a manual step it can't safely automate itself (e.g.
-	// extras/vscode.json's context-menu/file-association `reg import`
+	// extras/vscode.json's contTR-menu/file-association `reg import`
 	// commands, which touch the registry and so are left opt-in rather
 	// than run automatically). A string or an array of lines in the raw
 	// manifest, same StringList shape as EnvAddPath; joined with "\n"

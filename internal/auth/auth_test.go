@@ -88,7 +88,7 @@ func TestTransport_InjectsHeaderOnlyForConfiguredHost(t *testing.T) {
 	defer upstream.Close()
 
 	// Transport keys strictly by hostname (req.URL.Hostname(), which
-	// excludes the port) -- auth doesn't vary by port, matching EXF-30's
+	// excludes the port) -- auth doesn't vary by port, matching FR-30's
 	// "keyed by host". Set the env var under that same hostname, not
 	// host:port.
 	reqURL, err := url.Parse(upstream.URL)

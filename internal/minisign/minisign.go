@@ -1,4 +1,4 @@
-// Package minisign verifies minisign signatures (EXF-41: signature
+// Package minisign verifies minisign signatures (FR-41: signature
 // verification when a manifest or bucket provides one; A5 provenance).
 // Verification only -- goop never holds a secret key, only checks
 // signatures third parties (a bucket maintainer, or goop's own future

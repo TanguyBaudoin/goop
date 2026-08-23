@@ -6,7 +6,7 @@ import "strings"
 // entry (e.g. "extras/86box") and as a CLI install argument (e.g.
 // "jq@1.8.2" or "extras/mpv@>=0.40"). Bucket empty means "search
 // configured buckets in priority order"; Constraint empty means "any
-// version" (A4, EXF-06).
+// version" (A4, FR-06).
 type Spec struct {
 	Bucket     string
 	Name       string

@@ -362,7 +362,7 @@ function Expand-7zipArchive {
     )
     $sevenZip = Get-Command '7z.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $sevenZip) {
-        abort "7z.exe not found on PATH; install 7-Zip (e.g. with an existing package manager) so goop can delegate .7z/.msi/installer extraction to it (CPT-05/EXT-06)."
+        abort "7z.exe not found on PATH; install 7-Zip (e.g. with an existing package manager) so goop can delegate .7z/.msi/installer extraction to it (CPT-05/TR-06)."
     }
     $dest = $DestinationPath.TrimEnd('\')
 
@@ -526,7 +526,7 @@ function Expand-DarkArchive {
     # normal Scoop package (`goop install dark`), resolved via PATH.
     $dark = Get-Command 'dark.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $dark) {
-        abort "dark.exe not found; install it first with ``goop install dark`` (CPT-05/EXT-06)."
+        abort "dark.exe not found; install it first with ``goop install dark`` (CPT-05/TR-06)."
     }
     $dest = $DestinationPath.TrimEnd('\')
     New-Item -ItemType Directory -Force -Path $dest | Out-Null

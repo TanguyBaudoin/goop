@@ -2,8 +2,8 @@
 
 This documents how goop is actually built, why it's built that way, and
 what to know before touching it. See
-[`package-manager-spec.md`](package-manager-spec.md) for the full
-requirements this implements (referenced throughout as EXF-xx, TR-xx,
+[`REQUIREMENTS.md`](REQUIREMENTS.md) for the full
+requirements this implements (referenced throughout as FR-xx, TR-xx,
 CPT-xx, A1–A5); this document is about the *implementation*, not the
 requirements themselves.
 
@@ -47,8 +47,8 @@ cmd/goop (CLI) ──┬─→ internal/bucket ──→ internal/manifest (deco
                   │        ├─→ internal/envvars (HKCU\Environment)
                   │        └─→ internal/vercmp (dependency constraint checks)
                   │
-                  ├─→ internal/lockfile (EXF-10–13)
-                  └─→ internal/minisign (EXF-41, verification only)
+                  ├─→ internal/lockfile (FR-10–13)
+                  └─→ internal/minisign (FR-41, verification only)
 
 cmd/shim ──→ internal/shim (the actual shim logic, shared with what cmd/goop embeds)
 ```
@@ -63,7 +63,7 @@ ones needing to change shape underneath.
 ## The install pipeline (`internal/installer.installResolved`)
 
 This is the piece worth understanding before changing anything, since
-`Install` (bucket-resolved), `Sync` (lockfile-resolved, EXF-11), and
+`Install` (bucket-resolved), `Sync` (lockfile-resolved, FR-11), and
 recursive dependency installs (A4) all funnel through it:
 
 1. Idempotency check: if the exact version is already installed
@@ -254,7 +254,7 @@ with only `Name` set. `installer.Sync` branches on that directly --
 (`installSpec`, not the public `Install`, to avoid re-registering the
 app into whatever profile happens to be active right now -- it's already
 a member of the profile being synced, that's why it's there) instead of
-EXF-11's usual frozen-fields-only install.
+FR-11's usual frozen-fields-only install.
 
 `installer.Install` (the public entry point, not `installSpec`) is the
 only place that registers an app into `profile.Active()` on success --
@@ -333,7 +333,7 @@ the *investigation*, not just the fix, is the reusable lesson:
   directory tree. This was implemented only after explicit user
   sign-off, distinct from everything else goop does inside its own
   root without asking.
-- **Signature verification (EXF-41) has no real-world manifest usage
+- **Signature verification (FR-41) has no real-world manifest usage
   to hook into.** No manifest in the actual `main`/`extras` corpus
   provides a signature field — `internal/minisign` is real, tested
   infrastructure (and used for goop's own release artifacts via
@@ -361,7 +361,7 @@ picked pragmatically to keep moving, and what that implies if revisited:
 - **D2 (lockfile format)**: canonical JSON, not TOML — avoids adding a
   TOML dependency, and JSON's already used everywhere else
   (`goop-install.json`, bucket config). Name-sorted and stably
-  indented so it diffs cleanly (EXF-13's actual requirement), which is
+  indented so it diffs cleanly (FR-13's actual requirement), which is
   the property that mattered, not the specific format.
 - **D3 (version constraint grammar)**: extended Scoop-style
   component-wise ordering (`internal/vercmp`), not strict SemVer — real

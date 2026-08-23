@@ -34,10 +34,10 @@ import (
 var Logf = func(format string, args ...any) {}
 
 // Record is what goop writes into a version directory after a successful
-// install, and reads back for `list`, `uninstall`, and `lock` (EXF-10:
+// install, and reads back for `list`, `uninstall`, and `lock` (FR-10:
 // name/version/bucket/resolved-URL/hash/architecture, plus what goop
 // itself additionally needs to reproduce a *working* install from the
-// lockfile alone -- Bin/ExtractDirs/ExtractTos -- without EXF-11's sync
+// lockfile alone -- Bin/ExtractDirs/ExtractTos -- without FR-11's sync
 // consulting the bucket at all).
 type Record struct {
 	Name         string `json:"name"`
@@ -183,7 +183,7 @@ func lockInstall(appName string) func() {
 	return mu.Unlock
 }
 
-// Install resolves spec ("[bucket/]name[@constraint]", EXF-06/A4)
+// Install resolves spec ("[bucket/]name[@constraint]", FR-06/A4)
 // against configured buckets, recursively ensuring every `depends`
 // entry is installed first, and installs it for the host architecture.
 // Installing an already-installed version is a no-op success (idempotent,
@@ -286,7 +286,7 @@ func installSpec(spec string, stack []string, quiet bool) (Record, error) {
 // depends first (stack carries the chain of apps currently being
 // resolved, for installSpec's cycle check). An already-installed
 // dependency is left alone unless its own constraint rejects the
-// installed version, which is reported as a conflict (EXF-06) rather
+// installed version, which is reported as a conflict (FR-06) rather
 // than silently reinstalling or upgrading something already in place.
 func installDependencies(parent string, depends []string, stack []string) error {
 	for _, raw := range depends {
@@ -320,7 +320,7 @@ func installDependencies(parent string, depends []string, stack []string) error 
 // extract, hooks, persist, commit, shims, shortcuts, env) against an
 // already-resolved manifest. Install uses this after resolving appName
 // against a bucket; Sync uses it directly against a lockfile entry's
-// frozen fields, with no bucket involved at all (EXF-11).
+// frozen fields, with no bucket involved at all (FR-11).
 func installResolved(appName, bucketName, archKey string, resolved manifest.Resolved, quiet bool) (Record, error) {
 	if err := paths.EnsureLayout(); err != nil {
 		return Record{}, err
@@ -544,7 +544,7 @@ func installResolved(appName, bucketName, archKey string, resolved manifest.Reso
 // showNotes prints a manifest's `notes` field after a successful
 // install, mirroring real Scoop's own show_notes (lib/install.ps1) --
 // often the only place a manifest documents a manual step it can't
-// safely automate itself (e.g. extras/vscode.json's context-menu/
+// safely automate itself (e.g. extras/vscode.json's contTR-menu/
 // file-association `reg import` commands, which touch the registry and
 // so are left opt-in rather than run automatically; silently dropping
 // this field, as goop did before, meant that guidance never reached
@@ -817,7 +817,7 @@ func relinkCurrent(appName, versionDir string) error {
 }
 
 // createShims materializes one shim per bin entry, hard-linked from a
-// single embedded shim binary (EXT-24), pointed through the `current`
+// single embedded shim binary (TR-24), pointed through the `current`
 // junction so an upgrade never needs to touch existing shims.
 func createShims(appName string, bins []manifest.BinEntry) error {
 	if len(bins) == 0 {
