@@ -7,11 +7,21 @@ plan.
 
 ## Status
 
-**J0 (shim), J1 (core), J2 (compatibility), and J3 (differentiation) are
-complete. J4 (publication) is in progress** — see
-[`ARCHITECTURE.md`](ARCHITECTURE.md) for how it's built and why;
-signature verification and provenance below; the code-signing
-certificate is still open. Licensed under MIT (see LICENSE).
+**J0 (shim), J1 (core) and J3 (differentiation) are complete. J2
+(compatibility) is functionally complete but its exit criterion is not
+met, and J4 (publication) is in progress.** The code is open (MIT, see
+LICENSE) and CI runs build, vet, gofmt, the test suite and a decode pass
+over the real `main` bucket on every push. What remains for J4 is a
+signed, published release binary — until then, installing means building
+from a clone.
+
+J2's gap is worth stating plainly: the specification called for a harness
+*installing* the 200 most-used manifests, and that harness was never
+built. CI verifies that the corpus **decodes** (1635/1635); installation
+is verified only by hand. See [`REQUIREMENTS.md`](REQUIREMENTS.md) for
+every requirement with its status, and the "Known gaps" section there for
+what is honestly still missing. [`ARCHITECTURE.md`](ARCHITECTURE.md)
+covers how it's built and why.
 
 The CLI itself (`internal/ui`) has colored, symbol-based output (✓/✗/→),
 aligned tables for `list`/`info`/`bucket list`/`auth list`/`status`, live
@@ -383,10 +393,8 @@ installed, `current` repointed, old version preserved per NR-03).
   attempted name, which a bare "key present" check can't tell apart
   from a real failure).
 
-Not yet built: `checkver`/`autoupdate` (CPT-06, lower priority — it's a
-bucket *maintainer* tool, not needed to consume a bucket),
-signing/provenance (A5), documentation/licensing/open-sourcing (J4).
-See the spec's §11 milestone table.
+See the "Not yet built" section at the end for what remains, and
+[`REQUIREMENTS.md`](REQUIREMENTS.md) §11 for the milestone table.
 
 ## Layout
 
@@ -508,7 +516,7 @@ mis-installing.
 `goop import` brings apps already installed by a real Scoop under goop's
 management without touching Scoop's own files at all (see Status above).
 
-## Reproducibility and speed (J3, in progress)
+## Reproducibility and speed (J3)
 
 `goop lock` snapshots installed apps' exact resolved URLs/hashes/bin
 into `goop.lock.json`. `goop sync` installs precisely that state without
@@ -529,7 +537,8 @@ and removes), adds both to `PATH` (persisted to the User environment
 block, plus the current session), and adds the main bucket.
 
 ```powershell
-git clone <this repo> && cd goop
+git clone https://github.com/TanguyBaudoin/goop.git
+cd goop
 .\scripts\install.ps1              # installs to $env:GOOP_HOME or <home>\goop
 .\scripts\install.ps1 -DryRun      # preview PATH/env changes without persisting them
 .\scripts\install.ps1 -GoopDir D:\goop -NoBucket
@@ -549,7 +558,18 @@ go test ./...
 
 `go build ./...` alone only works once `internal/shimbin/shim.exe`
 exists (it's `go:embed`-ed into `cmd/goop`); `scripts/build.ps1` handles
-the ordering. `internal/envvars`'s tests touch the real
+the ordering, and `go generate ./...` produces the same file. Pass
+`-Version 0.1.0` to stamp a release build — `goop version` reports that
+stamp plus the commit it was built from, which is what to quote in a bug
+report.
+
+To run the corpus decode check that CI runs, point `GOOP_MAIN_BUCKET` at
+a checkout of ScoopInstaller/Main; it skips itself when unset:
+
+```powershell
+$env:GOOP_MAIN_BUCKET = "$env:USERPROFILE\goop\buckets\main\bucket"
+go test ./internal/manifest/ -run Corpus -v
+``` `internal/envvars`'s tests touch the real
 `HKCU\Environment` (opt-in: `GOOP_TEST_ENVVARS=1`); `internal/credstore`
 and `internal/downloader`'s auth integration test touch the real Windows
 Credential Manager (opt-in: `GOOP_TEST_CREDSTORE=1`) — both use
@@ -590,6 +610,14 @@ $env:GOOP_HOME = "$HOME\goop-test"   # optional: keep test state separate from a
 .\build\goop.exe install "jq@1.8.2"     # version-constrained install spec
 .\build\goop.exe bucket add main-archive https://codeload.github.com/ScoopInstaller/Main/zip/refs/heads/master
 
+# pinning, cache and repair
+.\build\goop.exe hold jq              # skipped by `update` until unheld
+.\build\goop.exe cache show           # cached installers, biggest first
+.\build\goop.exe cache rm firefox     # matches anywhere in the filename
+.\build\goop.exe download jq          # fetch + verify into the cache, install nothing
+.\build\goop.exe reset jq             # rebuild shims/shortcuts/env for an existing install
+.\build\goop.exe cleanup              # drop superseded versions
+
 # provenance and signatures
 .\build\goop.exe info ripgrep
 minisign -G -p release.pub -s release.key    # one-time, keep release.key secret
@@ -619,10 +647,30 @@ executing anything.
 
 ## Not yet built
 
-`checkver`/`autoupdate` (CPT-06, a bucket-*maintainer* tool, not needed
-to consume a bucket). J4's remaining pieces need decisions/resources
-that aren't this codebase's to provide: an Authenticode certificate for
-signing the published binary itself (TR-32, avoiding antivirus false
-positives — distinct from minisign-signing release artifacts, which is
-built), and the license + open-sourcing decision (D6). See
-[`ARCHITECTURE.md`](ARCHITECTURE.md) and the spec's §11 milestone table.
+Ordered by what matters most, and stated as gaps rather than plans.
+[`REQUIREMENTS.md`](REQUIREMENTS.md) carries the full list with the
+requirement each one belongs to.
+
+**One maintainer** (GOV-01–GOV-03). The specification named the bus
+factor a critical risk at the outset and it is still open: no second
+reviewer, no review process. Opening the code was a precondition for
+fixing this, not the fix. Everything below is smaller.
+
+**No automated install harness** (J2's exit criterion). The corpus is
+verified to decode; installing is verified by hand. This is the gap most
+likely to let a regression through, and the most useful thing an outside
+contributor could close.
+
+**No signed release** (TR-32). Publishing a binary needs an Authenticode
+certificate to avoid antivirus false positives — distinct from
+minisign-signing release artifacts, which is built and works. Until then,
+install by building from a clone.
+
+**Two acceptance criteria never measured.** Cross-machine `sync`
+reproducibility, and build-duration parity against Scoop on a real
+CMake/Ninja build — the latter being one of the reasons the project
+exists.
+
+**`checkver`/`autoupdate`** (CPT-06), deliberately: they generate new
+manifest versions upstream and are a bucket-*maintainer* tool, not
+something needed to consume a bucket.
