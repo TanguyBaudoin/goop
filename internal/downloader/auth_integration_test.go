@@ -9,8 +9,8 @@ import (
 	"os"
 	"testing"
 
-	"goop/internal/credstore"
-	"goop/internal/downloader"
+	"github.com/TanguyBaudoin/goop/internal/credstore"
+	"github.com/TanguyBaudoin/goop/internal/downloader"
 )
 
 // TestGet_EndToEndAuthentication proves the real wiring, not just each

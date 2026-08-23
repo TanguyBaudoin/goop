@@ -14,10 +14,10 @@ import (
 	"strings"
 	"sync"
 
-	"goop/internal/archive"
-	"goop/internal/downloader"
-	"goop/internal/manifest"
-	"goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/archive"
+	"github.com/TanguyBaudoin/goop/internal/downloader"
+	"github.com/TanguyBaudoin/goop/internal/manifest"
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // gitProxyArgs returns extra "git -c http.proxy=..." args for a git

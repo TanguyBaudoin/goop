@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"goop/internal/manifest"
+	"github.com/TanguyBaudoin/goop/internal/manifest"
 )
 
 // writeLog writes content to a temp file and returns its path, so the

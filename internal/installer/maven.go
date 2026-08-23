@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"goop/internal/manifest"
-	"goop/internal/maven"
-	"goop/internal/mavenrepo"
-	"goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/manifest"
+	"github.com/TanguyBaudoin/goop/internal/maven"
+	"github.com/TanguyBaudoin/goop/internal/mavenrepo"
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // installMaven resolves a

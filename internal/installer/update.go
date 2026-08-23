@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"goop/internal/bucket"
+	"github.com/TanguyBaudoin/goop/internal/bucket"
 )
 
 // UpdateResult is what Update did for one app.

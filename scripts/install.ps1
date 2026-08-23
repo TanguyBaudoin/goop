@@ -59,18 +59,13 @@ if (-not (Get-Command go -CommandType Application -ErrorAction SilentlyContinue)
 }
 
 Write-Step "Building goop from $repoRoot ..."
-Push-Location $repoRoot
-try {
-    New-Item -ItemType Directory -Force -Path internal\shimbin | Out-Null
-    go build -o internal\shimbin\shim.exe .\cmd\shim
-    if ($LASTEXITCODE -ne 0) { throw "build of cmd\shim failed" }
-
-    New-Item -ItemType Directory -Force -Path build | Out-Null
-    go build -o build\goop.exe .\cmd\goop
-    if ($LASTEXITCODE -ne 0) { throw "build of cmd\goop failed" }
-} finally {
-    Pop-Location
-}
+# Delegated to build.ps1 rather than repeating `go build` here: that
+# script owns the shim-then-goop ordering and the -ldflags version
+# stamp, and a second copy of it would silently drift -- an install done
+# this way would report a different `goop version` than one built the
+# normal way.
+& (Join-Path $PSScriptRoot 'build.ps1')
+if ($LASTEXITCODE -ne 0) { throw "build failed" }
 Write-Ok "built $repoRoot\build\goop.exe"
 
 Write-Step "Setting up $GoopDir ..."

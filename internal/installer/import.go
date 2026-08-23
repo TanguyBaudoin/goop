@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"goop/internal/manifest"
-	"goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/manifest"
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // CPT-07: import an existing Scoop installation without reinstalling

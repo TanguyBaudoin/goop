@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"goop/internal/manifest"
-	"goop/internal/paths"
-	"goop/internal/pwsh"
+	"github.com/TanguyBaudoin/goop/internal/manifest"
+	"github.com/TanguyBaudoin/goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/pwsh"
 )
 
 // Reset re-applies everything an install wires up *around* an app's

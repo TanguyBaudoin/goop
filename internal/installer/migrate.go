@@ -12,9 +12,9 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"goop/internal/bucket"
-	"goop/internal/manifest"
-	"goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/bucket"
+	"github.com/TanguyBaudoin/goop/internal/manifest"
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // Migrate (unlike Import, which junctions straight at Scoop's own

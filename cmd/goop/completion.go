@@ -8,11 +8,11 @@ import (
 	"sort"
 	"strings"
 
-	"goop/internal/bucket"
-	"goop/internal/installer"
-	"goop/internal/mavenrepo"
-	"goop/internal/profile"
-	"goop/internal/ui"
+	"github.com/TanguyBaudoin/goop/internal/bucket"
+	"github.com/TanguyBaudoin/goop/internal/installer"
+	"github.com/TanguyBaudoin/goop/internal/mavenrepo"
+	"github.com/TanguyBaudoin/goop/internal/profile"
+	"github.com/TanguyBaudoin/goop/internal/ui"
 )
 
 // topLevelCommands is the single source of truth for goop's top-level

@@ -12,8 +12,8 @@ import (
 	"os"
 	"strings"
 
-	"goop/internal/maven"
-	"goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/maven"
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // Entry is one configured Maven repo: a name and its base URL. Priority

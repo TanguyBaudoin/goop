@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // StaleVersion is one installed version that `current` doesn't point at.

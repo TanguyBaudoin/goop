@@ -6,7 +6,7 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"goop/internal/ui"
+	"github.com/TanguyBaudoin/goop/internal/ui"
 )
 
 // version is goop's own release version, as opposed to the versions of

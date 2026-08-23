@@ -17,17 +17,17 @@ import (
 	"sync"
 	"time"
 
-	"goop/internal/archive"
-	"goop/internal/bucket"
-	"goop/internal/downloader"
-	"goop/internal/envvars"
-	"goop/internal/manifest"
-	"goop/internal/paths"
-	"goop/internal/profile"
-	"goop/internal/pwsh"
-	goopshim "goop/internal/shim"
-	"goop/internal/shimbin"
-	"goop/internal/vercmp"
+	"github.com/TanguyBaudoin/goop/internal/archive"
+	"github.com/TanguyBaudoin/goop/internal/bucket"
+	"github.com/TanguyBaudoin/goop/internal/downloader"
+	"github.com/TanguyBaudoin/goop/internal/envvars"
+	"github.com/TanguyBaudoin/goop/internal/manifest"
+	"github.com/TanguyBaudoin/goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/profile"
+	"github.com/TanguyBaudoin/goop/internal/pwsh"
+	goopshim "github.com/TanguyBaudoin/goop/internal/shim"
+	"github.com/TanguyBaudoin/goop/internal/shimbin"
+	"github.com/TanguyBaudoin/goop/internal/vercmp"
 )
 
 // Logf, if set, receives human-readable progress messages.

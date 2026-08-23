@@ -3,10 +3,10 @@ package installer
 import (
 	"fmt"
 
-	"goop/internal/bucket"
-	"goop/internal/downloader"
-	"goop/internal/manifest"
-	"goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/bucket"
+	"github.com/TanguyBaudoin/goop/internal/downloader"
+	"github.com/TanguyBaudoin/goop/internal/manifest"
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // DownloadResult is what Download fetched for one app.

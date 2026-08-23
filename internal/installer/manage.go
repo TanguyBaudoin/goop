@@ -8,10 +8,10 @@ import (
 	"sort"
 	"strings"
 
-	"goop/internal/manifest"
-	"goop/internal/paths"
-	"goop/internal/profile"
-	"goop/internal/pwsh"
+	"github.com/TanguyBaudoin/goop/internal/manifest"
+	"github.com/TanguyBaudoin/goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/profile"
+	"github.com/TanguyBaudoin/goop/internal/pwsh"
 )
 
 // friendlyPath replaces the user's home directory prefix with "~\",

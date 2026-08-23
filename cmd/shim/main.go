@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 
-	"goop/internal/shim"
+	"github.com/TanguyBaudoin/goop/internal/shim"
 )
 
 func main() {

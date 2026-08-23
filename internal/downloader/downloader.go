@@ -21,8 +21,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"goop/internal/auth"
-	"goop/internal/manifest"
+	"github.com/TanguyBaudoin/goop/internal/auth"
+	"github.com/TanguyBaudoin/goop/internal/manifest"
 )
 
 // httpClient bounds connection setup so a stalled/non-responding host

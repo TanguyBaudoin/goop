@@ -16,8 +16,8 @@ import (
 	"strings"
 	"sync"
 
-	"goop/internal/lockfile"
-	"goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/lockfile"
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // Default is the profile installs land in when no other profile has

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"goop/internal/downloader"
+	"github.com/TanguyBaudoin/goop/internal/downloader"
 )
 
 // Resolve fetches coord's .sha1 sidecar from repoBase (published next to

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"goop/internal/paths"
-	"goop/internal/pwsh"
+	"github.com/TanguyBaudoin/goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/pwsh"
 )
 
 // repairStagingPaths rewrites any reference to the staging directory

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"goop/internal/manifest"
+	"github.com/TanguyBaudoin/goop/internal/manifest"
 )
 
 // SearchResult is one manifest matched by Search: Binaries is empty

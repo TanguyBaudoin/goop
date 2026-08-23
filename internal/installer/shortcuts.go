@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"goop/internal/manifest"
-	"goop/internal/paths"
-	"goop/internal/pwsh"
+	"github.com/TanguyBaudoin/goop/internal/manifest"
+	"github.com/TanguyBaudoin/goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/pwsh"
 )
 
 // createShortcuts materializes Start Menu shortcuts (CPT-03), namespaced

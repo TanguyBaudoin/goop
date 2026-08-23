@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // CacheEntry is one cached download.

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"goop/internal/bucket"
-	"goop/internal/manifest"
+	"github.com/TanguyBaudoin/goop/internal/bucket"
+	"github.com/TanguyBaudoin/goop/internal/manifest"
 )
 
 // implicitHelpers returns the helper tools appName needs installed

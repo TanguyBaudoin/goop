@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"goop/internal/manifest"
-	"goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/manifest"
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // linkPersist wires each persist entry to goop's stable per-app persist

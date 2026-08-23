@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // SetHold pins (or unpins) appName at its currently installed version.

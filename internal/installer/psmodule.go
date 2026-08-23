@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"goop/internal/envvars"
-	"goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/envvars"
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // linkPSModule wires a manifest's `psmodule.name` into goop's own

@@ -5,10 +5,10 @@ import (
 	"strings"
 	"sync"
 
-	"goop/internal/lockfile"
-	"goop/internal/manifest"
-	"goop/internal/paths"
-	"goop/internal/profile"
+	"github.com/TanguyBaudoin/goop/internal/lockfile"
+	"github.com/TanguyBaudoin/goop/internal/manifest"
+	"github.com/TanguyBaudoin/goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/profile"
 )
 
 // Lock snapshots every currently-installed app into profileName's

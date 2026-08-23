@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // resolveProxy picks the proxy for req, in order: the standard

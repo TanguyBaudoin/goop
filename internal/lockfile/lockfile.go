@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"sort"
 
-	"goop/internal/manifest"
-	"goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/manifest"
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // FileName is the lockfile's name at the root of a goop install

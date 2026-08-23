@@ -13,7 +13,7 @@ import (
 	"os"
 	"strings"
 
-	"goop/internal/credstore"
+	"github.com/TanguyBaudoin/goop/internal/credstore"
 )
 
 // EnvVarName maps a host to the environment variable that can override

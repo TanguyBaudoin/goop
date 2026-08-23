@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // ClearCache deletes cached downloads. With no patterns it empties the

@@ -74,5 +74,5 @@ for private buckets in the Windows credential store.
 **Other** — `config`, `migrate`, `completion` (PowerShell and bash,
 with `--install` to register itself), and `version`.
 
-[Unreleased]: https://github.com/OWNER/goop/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/OWNER/goop/releases/tag/v0.1.0
+[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.1.0
