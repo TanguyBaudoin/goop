@@ -39,14 +39,14 @@ func TestClassify(t *testing.T) {
 
 func TestQuoteArg(t *testing.T) {
 	tests := map[string]string{
-		"simple":          "simple",
-		"":                `""`,
-		"has space":       `"has space"`,
-		`C:\a\b`:          `C:\a\b`,
-		`C:\has space\x`:  `"C:\has space\x"`,
-		`a"b`:              `"a\"b"`,
-		`ends\`:            `ends\`,
-		`"quoted" arg`:    `"\"quoted\" arg"`,
+		"simple":         "simple",
+		"":               `""`,
+		"has space":      `"has space"`,
+		`C:\a\b`:         `C:\a\b`,
+		`C:\has space\x`: `"C:\has space\x"`,
+		`a"b`:            `"a\"b"`,
+		`ends\`:          `ends\`,
+		`"quoted" arg`:   `"\"quoted\" arg"`,
 	}
 	for in, want := range tests {
 		if got := QuoteArg(in); got != want {

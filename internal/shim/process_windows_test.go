@@ -6,13 +6,13 @@ import "testing"
 
 func TestStripProgramName(t *testing.T) {
 	tests := map[string]string{
-		`git.exe status --short`:                    `status --short`,
-		`"C:\Program Files\git\git.exe" status`:      `status`,
-		`"C:\Program Files\git\git.exe"`:              ``,
-		`git.exe`:                                    ``,
-		`git.exe  --two-spaces`:                       `--two-spaces`,
-		`git.exe "arg with spaces" next`:              `"arg with spaces" next`,
-		`"unterminated`:                                ``,
+		`git.exe status --short`:                `status --short`,
+		`"C:\Program Files\git\git.exe" status`: `status`,
+		`"C:\Program Files\git\git.exe"`:        ``,
+		`git.exe`:                               ``,
+		`git.exe  --two-spaces`:                 `--two-spaces`,
+		`git.exe "arg with spaces" next`:        `"arg with spaces" next`,
+		`"unterminated`:                         ``,
 	}
 	for in, want := range tests {
 		if got := stripProgramName(in); got != want {

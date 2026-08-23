@@ -8,12 +8,12 @@ import (
 
 func TestArchiveExt(t *testing.T) {
 	tests := map[string]string{
-		"https://example.com/bucket.zip":                       ".zip",
-		"https://example.com/bucket.tar.gz":                     ".tar.gz",
-		"https://example.com/bucket.tgz":                        ".tgz", // matched by the .tgz branch but normalized differently below
+		"https://example.com/bucket.zip":                           ".zip",
+		"https://example.com/bucket.tar.gz":                        ".tar.gz",
+		"https://example.com/bucket.tgz":                           ".tgz", // matched by the .tgz branch but normalized differently below
 		"https://codeload.github.com/org/repo/zip/refs/heads/main": ".zip",
-		"https://github.com/org/repo.git":                       "",
-		"https://github.com/org/repo":                           "",
+		"https://github.com/org/repo.git":                          "",
+		"https://github.com/org/repo":                              "",
 	}
 	for url, want := range tests {
 		got := archiveExt(url)

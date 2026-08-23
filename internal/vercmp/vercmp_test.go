@@ -10,12 +10,12 @@ func TestCompare(t *testing.T) {
 		{"1.2.3", "1.2.3", 0},
 		{"1.2.3", "1.2.4", -1},
 		{"1.2.4", "1.2.3", 1},
-		{"1.2", "1.2.1", -1},        // fewer components sorts first
-		{"1.10.0", "1.9.0", 1},      // numeric compare, not lexicographic ("10" > "9")
-		{"704", "705", -1},          // real less-Windows-style bare version
-		{"15859902", "9000000", 1},  // real android-clt-style build number
+		{"1.2", "1.2.1", -1},             // fewer components sorts first
+		{"1.10.0", "1.9.0", 1},           // numeric compare, not lexicographic ("10" > "9")
+		{"704", "705", -1},               // real less-Windows-style bare version
+		{"15859902", "9000000", 1},       // real android-clt-style build number
 		{"2026.1.3.7", "2026.1.4.0", -1}, // real android-studio-style version
-		{"10.4.2", "10.4.10", -1},   // numeric, not string, comparison of "2" vs "10"
+		{"10.4.2", "10.4.10", -1},        // numeric, not string, comparison of "2" vs "10"
 		{"1.8.2", "1.8.2", 0},
 	}
 	for _, tt := range tests {

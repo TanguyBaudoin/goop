@@ -34,9 +34,9 @@ func writeTestZip(t *testing.T, entries map[string]string) string {
 
 func TestExtractZip_Flat(t *testing.T) {
 	zipPath := writeTestZip(t, map[string]string{
-		"rg.exe":     "binary-content",
-		"README.md":  "readme",
-		"sub/x.txt":  "nested",
+		"rg.exe":    "binary-content",
+		"README.md": "readme",
+		"sub/x.txt": "nested",
 	})
 	dest := t.TempDir()
 	if err := ExtractZip(zipPath, dest, ""); err != nil {

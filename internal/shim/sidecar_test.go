@@ -77,11 +77,11 @@ func TestParseSidecar(t *testing.T) {
 
 func TestSidecarPath(t *testing.T) {
 	tests := map[string]string{
-		`C:\shims\git.exe`:    `C:\shims\git.shim`,
-		`C:\shims\node`:       `C:\shims\node.shim`,
-		`C:\shims\a.b.c.exe`:  `C:\shims\a.b.c.shim`,
-		`git.exe`:             `git.shim`,
-		`C:\dir.with.dots\x`:  `C:\dir.with.dots\x.shim`,
+		`C:\shims\git.exe`:   `C:\shims\git.shim`,
+		`C:\shims\node`:      `C:\shims\node.shim`,
+		`C:\shims\a.b.c.exe`: `C:\shims\a.b.c.shim`,
+		`git.exe`:            `git.shim`,
+		`C:\dir.with.dots\x`: `C:\dir.with.dots\x.shim`,
 	}
 	for in, want := range tests {
 		if got := SidecarPath(in); got != want {

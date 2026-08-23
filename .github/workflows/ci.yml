@@ -1,0 +1,64 @@
+name: CI
+
+# goop is a Windows package manager: it links Windows-only APIs, shells
+# out to powershell.exe, and creates NTFS hardlinks. A Linux runner
+# cannot compile it, let alone test it, so windows-latest is the only
+# meaningful target rather than a cost-saving choice.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Must run before build/vet/test, not after: cmd/goop embeds
+      # internal/shimbin/shim.exe via go:embed, and that file is a build
+      # artifact absent from a fresh checkout. A bare `go build ./...`
+      # here fails with "pattern shim.exe: no matching files found".
+      - name: Build shim and goop
+        run: .\scripts\build.ps1
+
+      # gofmt -l exits 0 even when it lists files, so the listing has to
+      # be turned into a failure explicitly.
+      - name: Gofmt
+        run: |
+          $unformatted = gofmt -l .\cmd .\internal
+          if ($unformatted) {
+            Write-Output "Not gofmt'd:"
+            $unformatted | ForEach-Object { Write-Output "  $_" }
+            exit 1
+          }
+          Write-Output "gofmt: all clean"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      # TestDecode_RealMainBucketCorpus decodes every manifest in a real
+      # checkout of ScoopInstaller/Main -- several thousand files, and
+      # where manifest-parser regressions actually surface. It skips
+      # itself unless GOOP_MAIN_BUCKET points at the checkout's bucket/
+      # directory, so the clone below is what makes the step meaningful
+      # rather than a silent no-op.
+      - name: Fetch the Main bucket
+        run: git clone --depth 1 https://github.com/ScoopInstaller/Main.git "$env:RUNNER_TEMP\main-bucket"
+
+      - name: Test against the real manifest corpus
+        env:
+          GOOP_MAIN_BUCKET: ${{ runner.temp }}\main-bucket\bucket
+        run: go test ./internal/manifest/ -run Corpus -v

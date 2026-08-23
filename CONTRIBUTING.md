@@ -1,0 +1,91 @@
+# Contributing
+
+## Platform
+
+goop is Windows-only by design: it creates NTFS hardlinks, reads the
+Windows registry, and runs manifest hooks through `powershell.exe`. The
+PowerShell target is **Windows PowerShell 5.1**, not just PowerShell 7 —
+that is what ships with Windows and what most users will actually run
+manifests under. Two 5.1 quirks have already caused real bugs here:
+
+- `Set-Content -Encoding utf8` writes a **BOM**. Anything Go reads back
+  must either be written BOM-less (`New-Object System.Text.UTF8Encoding
+  $false`) or strip `﻿` on read.
+- Redirected stdout encoding is controlled by `[Console]::OutputEncoding`,
+  not `$OutputEncoding`.
+
+## Build
+
+```powershell
+.\scripts\build.ps1
+```
+
+`go build ./...` **on its own fails on a fresh clone**, with
+`pattern shim.exe: no matching files found`. That is expected, not a
+broken checkout: `cmd/goop` embeds the compiled shim via
+`internal/shimbin/shim.exe`, which is a build artifact and therefore
+gitignored. `scripts/build.ps1` builds `cmd/shim` into place first, then
+`cmd/goop`. `go generate ./...` produces the same file if you prefer.
+
+CI runs `scripts/build.ps1` before anything else for this reason.
+
+## Test
+
+```powershell
+go test ./...
+```
+
+To also decode the real upstream manifest corpus (a few thousand files,
+where parser regressions actually show up), point `GOOP_MAIN_BUCKET` at
+a checkout of [ScoopInstaller/Main](https://github.com/ScoopInstaller/Main):
+
+```powershell
+$env:GOOP_MAIN_BUCKET = "$env:USERPROFILE\goop\buckets\main\bucket"
+go test ./internal/manifest/ -run Corpus -v
+```
+
+The test skips itself when that variable is unset, so it never fails on
+a machine without the checkout.
+
+`go test -race` needs a C compiler (`CGO_ENABLED=1`).
+
+### Isolating tests from your real machine
+
+**Setting `GOOP_HOME` is not enough.** `paths.StartMenu()` deliberately
+ignores it, because Scoop itself always writes shortcuts to the real
+Start Menu — that fidelity is correct behaviour, not a bug. The
+consequence is that an install test run carelessly will create *and
+delete* shortcuts in your actual Start Menu. This has already destroyed
+real user shortcuts during development.
+
+Any test that installs anything must isolate `$env:APPDATA` as well:
+
+```powershell
+$env:GOOP_HOME = "$env:TEMP\goop-test"
+$env:APPDATA   = "$env:TEMP\goop-test-appdata"
+```
+
+Clean both up afterwards.
+
+## Verifying changes
+
+goop's contract is behavioural compatibility with Scoop, so the standard
+of proof is real data, not just a green build:
+
+- compare against the actual Scoop source (`lib/*.ps1`, `libexec/*.ps1`)
+  when changing anything that mirrors a Scoop behaviour, and say which
+  file you checked;
+- exercise changes against real manifests and real installs, not only
+  fixtures. Most bugs found in this codebase — staging-path leaks into
+  shim sidecars, case-sensitivity in `extract_dir`, BOMs in log files —
+  compiled cleanly and passed unit tests.
+
+If a change intentionally diverges from Scoop, document *why* in a
+comment at the divergence.
+
+## Code style
+
+Match the surrounding code. Comments explain *why* a thing is done, and
+in particular record the real-world failure a piece of defensive code
+exists to prevent — that context is the most valuable thing in this
+codebase and the easiest to lose.
