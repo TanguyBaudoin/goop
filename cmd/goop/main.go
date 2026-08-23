@@ -179,6 +179,8 @@ func run(args []string) int {
 		return cmdMigrate(args[1:])
 	case "completion":
 		return cmdCompletion(args[1:])
+	case "version", "--version":
+		return cmdVersion(args[1:])
 	case "-h", "--help", "help":
 		printUsage()
 		return 0
@@ -308,6 +310,10 @@ func printUsage() {
 	cmd("goop completion <powershell|bash> --install", "register it in your shell profile automatically (idempotent, appends only)")
 	cmd("goop completion powershell", "or print it; load with: goop completion powershell | Out-String | Invoke-Expression")
 	cmd("goop completion bash", "or print it (e.g. Git Bash); load with: eval \"$(goop completion bash)\"")
+	fmt.Fprintln(os.Stderr)
+
+	section("about")
+	cmd("goop version", "goop's own version, commit and build date -- quote it in bug reports")
 	fmt.Fprintln(os.Stderr)
 
 	fmt.Fprintf(os.Stderr, "%s 0 ok, 1 error, 2 usage, 3 drift detected ('goop status')\n", ui.Bold("exit codes:"))

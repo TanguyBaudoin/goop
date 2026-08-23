@@ -83,6 +83,26 @@ of proof is real data, not just a green build:
 If a change intentionally diverges from Scoop, document *why* in a
 comment at the divergence.
 
+## Changelog and versioning
+
+User-visible changes go in [CHANGELOG.md](CHANGELOG.md) under
+`Unreleased`, in the same change you make them — reconstructing them at
+release time from git history loses the *why*, which is the part users
+need. Purely internal work (refactors, test additions) does not need an
+entry.
+
+goop's own version lives in `cmd/goop/version.go` and is stamped at link
+time:
+
+```powershell
+.\scripts\build.ps1 -Version 0.1.0
+```
+
+An unstamped build reports `0.1.0-dev`, and `go install` builds report
+`dev`. Commit and build date are not stamped by hand — the Go toolchain
+embeds them in build info, so `goop version` reports them for any build
+made from a git working tree.
+
 ## Code style
 
 Match the surrounding code. Comments explain *why* a thing is done, and
