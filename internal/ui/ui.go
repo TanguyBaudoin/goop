@@ -91,6 +91,13 @@ func Fail(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "%s %s\n", Red(CrossMark), fmt.Sprintf(format, args...))
 }
 
+// Warn prints a yellow line to stderr for something that succeeded but
+// deserves attention -- distinct from Fail, which means the command did
+// not do what was asked.
+func Warn(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "%s %s\n", Yellow(Bang), fmt.Sprintf(format, args...))
+}
+
 // ansiPattern matches the escape sequences Bold/Dim/Red/... emit, so
 // table column widths can be computed from visible characters only --
 // without this, a colored cell would be measured as wider than it

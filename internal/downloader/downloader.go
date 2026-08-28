@@ -273,6 +273,14 @@ func fetchFile(rawURL, dest string) error {
 	}
 	r, err := os.Open(src)
 	if err != nil {
+		if os.IsNotExist(err) {
+			// A local source that is missing is almost always a lockfile
+			// or manifest written on another machine, so say that rather
+			// than just reporting a path.
+			return fmt.Errorf("local source not found: %s\n"+
+				"  the URL %s points at a path this machine cannot see.\n"+
+				"  If this came from a lockfile written elsewhere, run `goop download` on a machine that can reach it, copy the cache directory here, and sync again -- the cache is keyed by hash, so it is reused whatever the URL says.", src, rawURL)
+		}
 		return err
 	}
 	defer r.Close()

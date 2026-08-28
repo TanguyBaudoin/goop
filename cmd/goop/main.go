@@ -397,7 +397,40 @@ func cmdLock(args []string) int {
 		return 1
 	}
 	ui.Ok("locked %d app(s) to profile %q (%s)", len(f.Entries), profileName, profile.Path(profileName))
+	warnMachineLocalSources(f)
 	return 0
+}
+
+// warnMachineLocalSources flags locked entries whose source only exists
+// on this machine. A drive-letter file:// URL resolves nowhere else, so
+// the lockfile will not reproduce on another host -- the one thing a
+// lockfile is for. A UNC path is fine and says nothing.
+//
+// This warns rather than refuses: a lockfile that never leaves this
+// machine is a legitimate use, and dropping the entry instead would be
+// worse than either -- the app would be installed but unlocked, so
+// `goop status` would report drift forever and `sync` elsewhere would
+// silently skip it.
+func warnMachineLocalSources(f lockfile.File) {
+	var local []string
+	for _, e := range f.Entries {
+		for _, u := range e.URLs {
+			if downloader.IsMachineLocalFileURL(u) {
+				local = append(local, e.Name)
+				break
+			}
+		}
+	}
+	if len(local) == 0 {
+		return
+	}
+	subject := fmt.Sprintf("%d entries use", len(local))
+	if len(local) == 1 {
+		subject = "1 entry uses"
+	}
+	ui.Warn("%s a machine-local file:// source: %s", subject, strings.Join(local, ", "))
+	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("These paths exist only on this machine, so this lockfile will not sync elsewhere."))
+	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Use a UNC path (file://server/share/...), or carry the cache across: `goop download` here, copy the cache directory, then `goop sync` there."))
 }
 
 func cmdSync(args []string) int {
