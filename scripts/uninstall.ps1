@@ -124,6 +124,15 @@ if (-not $Force) {
 # ---------------------------------------------------------------------------
 # 5. Run `goop uninstall --all --force` to cleanly remove every managed
 #    app (unless told to skip it).
+#
+#    This step is not cosmetic: it is what removes state living OUTSIDE
+#    GoopDir -- Start Menu shortcuts and PATH entries the apps themselves
+#    added. Deleting the tree alone would orphan those.
+#
+#    goop asks for its own typed confirmation here and has no unattended
+#    override, by design, so this prompts again even under -Force. If it
+#    is declined or cannot prompt, the script says what was left behind
+#    and carries on with the directory cleanup.
 # ---------------------------------------------------------------------------
 if (-not $SkipSelfdestruct -and $hasGoopExe) {
     $goopExe = Join-Path $GoopDir 'bin\goop.exe'
@@ -135,9 +144,9 @@ if (-not $SkipSelfdestruct -and $hasGoopExe) {
         if ($appCount -gt 0) {
             Write-Host "Uninstalling $appCount app(s) (this may take a while) ..."
         }
-        & $goopExe uninstall --all --force --yes
+        & $goopExe uninstall --all --force
         if ($LASTEXITCODE -ne 0) {
-            Write-Warn "goop uninstall --all exited with code $LASTEXITCODE; some apps may not have been cleanly removed. Continuing with directory cleanup."
+            Write-Warn "goop uninstall --all did not complete (exit $LASTEXITCODE). Shortcuts and PATH entries created by individual apps may be left behind; remove them by hand, or re-run 'goop uninstall --all' from a terminal before deleting the tree. Continuing with directory cleanup."
         } else {
             Write-Ok "All managed apps uninstalled."
         }

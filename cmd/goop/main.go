@@ -212,8 +212,8 @@ func printUsage() {
 	cmd("", "depends resolve recursively, with cycle + conflict detection (A4)")
 	cmd("", "or maven:[reponame/]groupId:artifactId:version:classifier:packaging -- needs `goop maven-repo add` first")
 	cmd("goop uninstall <name>... [--force]", "refuses if still referenced by another profile unless --force (see `goop why`)")
-	cmd("goop uninstall --all [--force] [--yes]", "remove every installed app; asks you to type a word to confirm")
-	cmd("", "refuses outright when stdin is not a terminal -- pass --yes for unattended use")
+	cmd("goop uninstall --all [--force]", "remove every installed app; asks you to type a word to confirm")
+	cmd("", "there is no unattended form: it refuses when stdin is not a terminal")
 	cmd("goop update [name]... [--no-update]", "upgrade to the bucket's current version; all installed if none given (FR-05)")
 	cmd("", "refreshes buckets first if stale -- without that it would report 'up to date' against old data")
 	fmt.Fprintln(os.Stderr)
@@ -944,21 +944,19 @@ func sortedKeys(m map[string]error) []string {
 
 func cmdUninstall(args []string) int {
 	var names []string
-	force, all, yes := false, false, false
+	force, all := false, false
 	for _, a := range args {
 		switch a {
 		case "--force":
 			force = true
 		case "--all":
 			all = true
-		case "--yes":
-			yes = true
 		default:
 			names = append(names, a)
 		}
 	}
 	if all {
-		if !confirmUninstallAll(yes) {
+		if !confirmUninstallAll() {
 			return 2
 		}
 		errs := installer.UninstallAll(force)
@@ -976,7 +974,7 @@ func cmdUninstall(args []string) int {
 		return exit
 	}
 	if len(names) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: goop uninstall <name>... [--force] | --all [--force] [--yes]")
+		fmt.Fprintln(os.Stderr, "usage: goop uninstall <name>... [--force] | --all [--force]")
 		return 2
 	}
 	exit := 0
@@ -999,16 +997,15 @@ const uninstallAllToken = "uninstall-all"
 // Two protections against two different mistakes. The typed word stops a
 // person confirming out of muscle memory. The terminal check stops the
 // command running unattended at all: a piped or scripted stdin cannot
-// consent, so goop refuses rather than assuming it. That second one is
-// the case that matters -- an automated caller, a script or an agent,
-// that reaches for `uninstall --all --force` now fails closed instead of
-// silently wiping the machine.
+// consent, so goop refuses rather than assuming it.
 //
-// --yes stays for callers that have already asked a human
-// (scripts/uninstall.ps1 prompts, then passes it). No flag can stop a
-// caller that deliberately sets it; what this buys is that the
-// accidental path is no longer a quiet success.
-func confirmUninstallAll(yes bool) bool {
+// There is deliberately no override flag. One existed briefly and was
+// removed: a --yes that scripts may pass is a --yes an automated caller
+// may pass, which hands back exactly the case the check exists to stop.
+// Removing every installed package is therefore something only a person
+// at a terminal can ask for. Callers that genuinely need it unattended
+// can uninstall by name, which is bounded by what they name.
+func confirmUninstallAll() bool {
 	records, err := installer.List()
 	if err != nil {
 		ui.Fail("uninstall --all: %v", err)
@@ -1017,12 +1014,9 @@ func confirmUninstallAll(yes bool) bool {
 	if len(records) == 0 {
 		return true // nothing to lose; the caller reports "no apps installed"
 	}
-	if yes {
-		return true
-	}
 	if !ui.IsTerminal(os.Stdin) {
 		ui.Fail("uninstall --all needs an interactive terminal to confirm")
-		fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Nothing was removed. Pass --yes to run it unattended, once you are certain."))
+		fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Nothing was removed. Run it from a terminal, or remove packages by name."))
 		return false
 	}
 

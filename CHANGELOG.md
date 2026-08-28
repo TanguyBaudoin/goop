@@ -19,8 +19,8 @@ built from — quote it in bug reports.
 - `goop uninstall --all` now requires confirmation. Interactively it asks
   for the word `uninstall-all` to be typed, after listing what will go;
   non-interactively — piped or scripted stdin — it **refuses outright**
-  rather than assuming consent. `--yes` is available for callers that
-  have already asked a human. The second half is the point: an automated
+  rather than assuming consent. There is no override flag: a `--yes` that
+  scripts may pass is a `--yes` an automated caller may pass. An automated
   caller reaching for `uninstall --all --force` now fails closed instead
   of quietly wiping the machine.
 - `goop profile reset` merges every profile into `default`, deletes the
