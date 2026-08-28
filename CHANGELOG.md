@@ -13,6 +13,10 @@ built from — quote it in bug reports.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] — 2026-08-29
+
 ### Added
 
 - `goop self-update` replaces goop itself with the current release. It
@@ -41,6 +45,16 @@ built from — quote it in bug reports.
   package per extraction and hook mechanism — rather than the
   specification's "200 most-used manifests", because popularity says
   nothing about which code path a package exercises. Current result: 8/8.
+
+### Fixed
+
+- `scripts/install.ps1` no longer asks the GitHub API which release is
+  latest. That endpoint allows 60 unauthenticated requests per hour *per
+  IP*, which everyone behind a corporate NAT shares, so the install could
+  fail with an opaque 403 for someone who had made no API calls at all.
+  It now uses the `/releases/latest/download/` redirect, which is not rate
+  limited. This one reached users without a release, since the installer
+  is fetched from `main`.
 
 ## [0.1.0] — 2026-08-28
 
@@ -145,5 +159,6 @@ status. The largest: installation is verified by hand rather than by an
 automated harness, the released binary is not Authenticode-signed so
 SmartScreen may warn on first run, and goop has a single maintainer.
 
-[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.2.0
 [0.1.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.1.0
