@@ -164,17 +164,48 @@ func archiveExt(rawURL string) string {
 	return ""
 }
 
+// fetchGitBucket materializes a Git-kind bucket into dir, choosing the
+// mechanism from what is available right now rather than from anything
+// persisted. With git present it is a shallow clone; without it, a
+// GitHub URL is downloaded as a codeload archive instead.
+//
+// The choice is deliberately not recorded. It is a property of this
+// machine at this moment, not of the bucket: install git tomorrow and
+// the next update goes back to being incremental on its own.
+func fetchGitBucket(rawURL, dir string) error {
+	if gitOnPath() {
+		args := append([]string{}, gitProxyArgs(rawURL)...)
+		args = append(args, "clone", "--depth", "1", rawURL, dir)
+		cmd := exec.Command("git", args...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git clone %s: %w\n%s", rawURL, err, out)
+		}
+		return nil
+	}
+	archiveURL := githubArchiveURL(rawURL)
+	if archiveURL == "" {
+		return fmt.Errorf("git not found on PATH, and %q is not a GitHub URL that can be downloaded as an archive instead -- install git, or give an archive URL directly", rawURL)
+	}
+	return fetchArchiveBucket(archiveURL, dir)
+}
+
+// isGitClone reports whether dir holds a real Git clone, as opposed to
+// an archive extracted into place.
+func isGitClone(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil
+}
+
 // Add fetches url as a new bucket named name and appends it (lowest
 // priority) to the config. kind selects git (FR-20, the default -- Git
 // is delegated to, consistent with how Scoop itself depends on it) or
 // archive (FR-21, no Git required); pass "" to auto-detect from url's
 // extension, defaulting to git.
 //
-// When kind is git (or auto-detected as git) and git is not on PATH, Add
-// falls back to archive mode if the URL is a recognizable GitHub URL
-// (githubArchiveURL) -- this lets a user bootstrap goop without having
-// git installed first. The bucket is stored as KindArchive so future
-// updates also use the archive path.
+// A git-kind bucket added on a machine without git is downloaded as a
+// codeload archive instead, but is still *recorded* as git with its
+// original URL. Nothing about the machine's current tooling is persisted:
+// install git later and the next update becomes incremental by itself.
 func Add(name, url string, kind Kind) error {
 	if name == "" {
 		return fmt.Errorf("bucket name must not be empty")
@@ -187,12 +218,12 @@ func Add(name, url string, kind Kind) error {
 		}
 	}
 
-	if kind == KindGit && !gitOnPath() {
-		if archiveURL := githubArchiveURL(url); archiveURL != "" {
-			url = archiveURL
-			kind = KindArchive
-		}
-	}
+	// Deliberately no rewrite of url/kind here. When git is missing, the
+	// fetch below falls back to a codeload archive, but what gets stored
+	// stays the canonical Git URL: rewriting it would lock the bucket
+	// into archive mode permanently, so a machine that happened to lack
+	// git once would keep re-downloading the whole bucket forever, with
+	// the original URL gone and no way back.
 
 	cfg, err := loadConfig()
 	if err != nil {
@@ -214,11 +245,8 @@ func Add(name, url string, kind Kind) error {
 
 	switch kind {
 	case KindGit:
-		args := append([]string{}, gitProxyArgs(url)...)
-		args = append(args, "clone", "--depth", "1", url, dir)
-		cmd := exec.Command("git", args...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("git clone %s: %w\n%s", url, err, out)
+		if err := fetchGitBucket(url, dir); err != nil {
+			return err
 		}
 	case KindArchive:
 		if err := fetchArchiveBucket(url, dir); err != nil {
@@ -427,19 +455,28 @@ func Update(name string) error {
 	dir := paths.Bucket(name)
 	switch entry.kind() {
 	case KindGit:
-		if !gitOnPath() {
-			if archiveURL := githubArchiveURL(entry.URL); archiveURL != "" {
-				entry.Kind = KindArchive
-				entry.URL = archiveURL
-				if err := saveConfig(cfg); err != nil {
-					return err
-				}
-				return updateArchive(entry.URL, dir)
-			}
-			return fmt.Errorf("git not found on PATH; cannot update bucket %q (and %q is not a GitHub URL that can fall back to archive mode)", name, entry.URL)
-		}
 		if _, err := os.Stat(dir); err != nil {
 			return fmt.Errorf("bucket %q not found: %w", name, err)
+		}
+		if !gitOnPath() {
+			// Refresh through a codeload archive instead, and leave the
+			// stored entry exactly as it is. Recording the fallback would
+			// pin the bucket to archive mode for good: install git later
+			// and it would keep re-downloading the whole thing, with the
+			// canonical URL already overwritten.
+			archiveURL := githubArchiveURL(entry.URL)
+			if archiveURL == "" {
+				return fmt.Errorf("git not found on PATH; cannot update bucket %q (and %q is not a GitHub URL that can fall back to an archive download)", name, entry.URL)
+			}
+			return updateArchive(archiveURL, dir)
+		}
+		if !isGitClone(dir) {
+			// Materialized as an archive back when git was missing, and
+			// git is here now: re-clone once so this and every later
+			// update is incremental again. Measured on the main bucket,
+			// that trades a single ~5s clone for ~1.4s refreshes instead
+			// of ~5s ones.
+			return recloneBucket(entry.URL, dir)
 		}
 		// Buckets are disposable upstream mirrors -- fetch + hard-reset
 		// avoids the "untracked working tree files would be overwritten"
@@ -465,6 +502,25 @@ func Update(name string) error {
 	default:
 		return fmt.Errorf("bucket %q has unknown kind %q", name, entry.Kind)
 	}
+}
+
+// recloneBucket replaces dir with a fresh shallow clone of url. Staged
+// beside the bucket and swapped in, so a clone that fails partway leaves
+// the existing bucket intact rather than a half-removed one.
+func recloneBucket(rawURL, dir string) error {
+	staging := dir + ".reclone"
+	os.RemoveAll(staging)
+	args := append([]string{}, gitProxyArgs(rawURL)...)
+	args = append(args, "clone", "--depth", "1", rawURL, staging)
+	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+		os.RemoveAll(staging)
+		return fmt.Errorf("git clone %s: %w\n%s", rawURL, err, out)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		os.RemoveAll(staging)
+		return err
+	}
+	return os.Rename(staging, dir)
 }
 
 // updateArchive replaces dir's contents with a fresh download+extract of

@@ -96,3 +96,19 @@ func TestHoistSingleSubdir_LeavesFlatLayoutAlone(t *testing.T) {
 		t.Fatalf("bucket/ should still be present: %v", err)
 	}
 }
+
+// A bucket materialized from an archive has no .git, which is what tells
+// Update it should re-clone once git becomes available instead of trying
+// to fetch in a directory that is not a repository.
+func TestIsGitClone(t *testing.T) {
+	dir := t.TempDir()
+	if isGitClone(dir) {
+		t.Error("an empty directory should not look like a clone")
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !isGitClone(dir) {
+		t.Error("a directory with .git should look like a clone")
+	}
+}

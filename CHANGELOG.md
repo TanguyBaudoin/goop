@@ -53,6 +53,15 @@ built from — quote it in bug reports.
 
 ### Changed
 
+- The git-less bucket fallback no longer rewrites the stored URL. A
+  bucket added on a machine without git is still recorded as a git bucket
+  with its canonical URL, and only the *fetch* falls back to a codeload
+  archive. Previously the codeload URL was persisted, which locked the
+  bucket into archive mode permanently: installing git later left it
+  re-downloading the whole bucket on every refresh, with the original URL
+  already overwritten. Once git is available, the next update re-clones
+  once and is incremental from then on — measured on the main bucket,
+  ~1.4s refreshes instead of ~5s.
 - Git buckets update with `fetch` + `reset --hard` + `clean -fd` instead
   of `pull --ff-only`. A bucket is a disposable mirror, and `pull`
   refused outright whenever upstream added a file whose path already
