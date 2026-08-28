@@ -59,7 +59,10 @@ jobs:
       - name: Verify the stamp
         shell: pwsh
         run: |
-          $out = & .\build\goop.exe version
+          # @(...) forces array context: a single-line output would be a
+          # string, and $out[0] its first character rather than its first
+          # line -- failing the check for entirely the wrong reason.
+          $out = @(& .\build\goop.exe version)
           Write-Output $out
           $expected = 'goop ${{ steps.version.outputs.version }}'
           if ($out[0] -ne $expected) {
