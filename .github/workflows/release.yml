@@ -1,0 +1,94 @@
+name: Release
+
+# Publishing is driven by the tag, so the released binary and the version
+# it reports cannot disagree: the -Version stamp is taken from the tag
+# name itself rather than from a constant someone has to remember to bump.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and publish (must already exist)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Resolve version from the tag
+        id: version
+        shell: pwsh
+        run: |
+          $tag = if ('${{ github.event.inputs.tag }}') { '${{ github.event.inputs.tag }}' } else { '${{ github.ref_name }}' }
+          # v0.1.0 -> 0.1.0; `goop version` reports the number, the tag carries the v.
+          $version = $tag -replace '^v', ''
+          "tag=$tag"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Output "building $version from $tag"
+
+      # Same script contributors use, so a release binary is produced the
+      # one way that is tested, not by a second copy of the build steps.
+      - name: Build
+        shell: pwsh
+        run: .\scripts\build.ps1 -Version '${{ steps.version.outputs.version }}'
+
+      # A release that does not pass its own tests should not exist.
+      - name: Vet and test
+        shell: pwsh
+        run: |
+          go vet ./...
+          go test ./...
+
+      # Prove the artifact reports the version it was tagged with before
+      # it is published, rather than discovering a mis-stamped binary
+      # after people have downloaded it.
+      - name: Verify the stamp
+        shell: pwsh
+        run: |
+          $out = & .\build\goop.exe version
+          Write-Output $out
+          $expected = 'goop ${{ steps.version.outputs.version }}'
+          if ($out[0] -ne $expected) {
+            throw "version output is '$($out[0])', expected '$expected'"
+          }
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash .\build\goop.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  goop.exe" | Out-File -FilePath .\build\checksums.txt -Encoding ascii
+          Get-Content .\build\checksums.txt
+
+      # gh ships on the runner; using it avoids taking a third-party
+      # action into the supply chain of a binary other people will run.
+      - name: Publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ steps.version.outputs.tag }}' `
+            .\build\goop.exe `
+            .\build\checksums.txt `
+            --title 'goop ${{ steps.version.outputs.version }}' `
+            --notes 'Install:
+
+```powershell
+irm https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/install.ps1 | iex
+```
+
+See CHANGELOG.md for what changed. `goop version` reports the build you are running.' `
+            --verify-tag

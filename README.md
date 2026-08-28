@@ -11,9 +11,10 @@ plan.
 (compatibility) is functionally complete but its exit criterion is not
 met, and J4 (publication) is in progress.** The code is open (MIT, see
 LICENSE) and CI runs build, vet, gofmt, the test suite and a decode pass
-over the real `main` bucket on every push. What remains for J4 is a
-signed, published release binary — until then, installing means building
-from a clone.
+over the real `main` bucket on every push, and a tag publishes a release
+binary that `scripts/install.ps1` downloads and checksum-verifies. What
+remains for J4 is Authenticode signing (TR-32), which needs a
+certificate rather than a change to the code.
 
 J2's gap is worth stating plainly: the specification called for a harness
 *installing* the 200 most-used manifests, and that harness was never
@@ -562,26 +563,54 @@ wildcards.
 
 ## Install
 
-goop isn't published as a release yet, so there's no `irm get.goop.sh |
-iex` the way Scoop has — `scripts/install.ps1` is the local equivalent:
-builds from a source checkout, lays out `<GoopDir>\{apps,buckets,shims,
-cache}`, copies `goop.exe` into `<GoopDir>\bin` (kept separate from
-`shims`, which only ever holds *managed app* shims goop itself creates
-and removes), adds both to `PATH` (persisted to the User environment
-block, plus the current session), and adds the main bucket.
+```powershell
+irm https://raw.githubusercontent.com/TanguyBaudoin/goop/main/scripts/install.ps1 | iex
+```
+
+Nothing has to be installed first — **no Go toolchain, and no git**. The
+script downloads the release binary, verifies its SHA256 against the
+checksum published alongside it, lays out
+`<GoopDir>\{apps,buckets,shims,cache}`, copies `goop.exe` into
+`<GoopDir>\bin` (kept separate from `shims`, which only ever holds
+*managed app* shims goop itself creates and removes), adds both to `PATH`
+(persisted to the User environment block, plus the current session), and
+adds the main bucket. That last step works without git because goop falls
+back to a codeload archive when git is absent.
+
+Piped into `iex` there is nothing to bind parameters to, so the options
+are also read from the environment:
+
+```powershell
+$env:GOOP_HOME = 'D:\goop'; irm https://raw.githubusercontent.com/TanguyBaudoin/goop/main/scripts/install.ps1 | iex
+```
+
+`GOOP_HOME` picks the install directory, `GOOP_VERSION` pins a release
+instead of taking the latest, `GOOP_NO_BUCKET=1` skips the bucket.
+Downloading the script instead lets you pass the same things as
+parameters (`-GoopDir`, `-Version`, `-NoBucket`, `-DryRun`).
+
+To build from a checkout instead — what contributors want, and the only
+option if you are on a commit that has no release:
 
 ```powershell
 git clone https://github.com/TanguyBaudoin/goop.git
 cd goop
-.\scripts\install.ps1              # installs to $env:GOOP_HOME or <home>\goop
-.\scripts\install.ps1 -DryRun      # preview PATH/env changes without persisting them
-.\scripts\install.ps1 -GoopDir D:\goop -NoBucket
+.\scripts\install.ps1 -FromSource     # needs a Go toolchain
 ```
 
 Refuses to run elevated (`-RunAsAdmin` to override) — goop installs
 per-user only (NR-01), same reasoning as Scoop's own installer. Safe to
 re-run: skips whatever's already in place instead of duplicating PATH
-entries or re-adding an existing bucket.
+entries or re-adding an existing bucket. `scripts/uninstall.ps1` reverses
+it.
+
+**On trust.** The checksum ships in the same GitHub release as the
+binary, so it catches a corrupted or truncated download, not a
+compromised release — HTTPS and GitHub are the trust anchor. Verifying a
+release signature *with the binary being installed* would be circular;
+`goop verify` and `scripts/sign.ps1` are for checking a later upgrade
+from an already-trusted goop. The published binary is not Authenticode-
+signed yet (TR-32), so SmartScreen may warn on first run.
 
 ## Build & test
 
@@ -589,6 +618,8 @@ entries or re-adding an existing bucket.
 .\scripts\build.ps1   # builds cmd/shim, embeds it, then builds cmd/goop -> build\goop.exe
 go test ./...
 ```
+
+Note that `go install github.com/TanguyBaudoin/goop/cmd/goop@latest` does **not** work, for the same reason: the module proxy serves the repository, which has no `shim.exe` in it. Install a release, or build from a checkout.
 
 `go build ./...` alone only works once `internal/shimbin/shim.exe`
 exists (it's `go:embed`-ed into `cmd/goop`); `scripts/build.ps1` handles
@@ -697,10 +728,10 @@ verified to decode; installing is verified by hand. This is the gap most
 likely to let a regression through, and the most useful thing an outside
 contributor could close.
 
-**No signed release** (TR-32). Publishing a binary needs an Authenticode
-certificate to avoid antivirus false positives — distinct from
-minisign-signing release artifacts, which is built and works. Until then,
-install by building from a clone.
+**No signed release** (TR-32). Releases are published by CI on a tag and
+the installer verifies their checksum, but the binary carries no
+Authenticode signature, so SmartScreen may warn on first run. That needs
+a code-signing certificate, which is a purchase rather than a patch.
 
 **Two acceptance criteria never measured.** Cross-machine `sync`
 reproducibility, and build-duration parity against Scoop on a real

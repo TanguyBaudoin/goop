@@ -15,6 +15,18 @@ built from — quote it in bug reports.
 
 ### Added
 
+- Releases. Pushing a `v*` tag builds, tests, verifies the version stamp
+  and publishes `goop.exe` plus a SHA256 checksum as a GitHub Release.
+- `scripts/install.ps1` now **downloads** that release instead of
+  building, so installing needs neither a Go toolchain nor git:
+
+  ```powershell
+  irm https://raw.githubusercontent.com/TanguyBaudoin/goop/main/scripts/install.ps1 | iex
+  ```
+
+  Options are read from the environment as well as from parameters, since
+  a script piped into `iex` has nothing to bind them to. `-FromSource`
+  keeps the old build-from-checkout behaviour for contributors.
 - `goop uninstall --all` removes every installed package in one command.
 - `goop uninstall --all` now requires confirmation. Interactively it asks
   for the word `uninstall-all` to be typed, after listing what will go;
