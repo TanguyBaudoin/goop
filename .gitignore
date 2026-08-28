@@ -11,3 +11,9 @@
 # Local state that must never be committed
 *.lock.json.local
 goop.log
+
+# A goop install root, or a clone of this repo, sitting inside the repo.
+# `install.ps1` defaults GoopDir to <home>\goop, but a run with -GoopDir
+# pointing here (or a nested clone from syncing between machines) drops
+# a full tree plus built binaries in the working copy.
+/goop/
