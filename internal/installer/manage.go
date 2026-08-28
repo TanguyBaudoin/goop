@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -81,6 +82,14 @@ func dependentsOf(appName string) ([]string, error) {
 	return out, nil
 }
 
+// ErrNotInstalled reports that an app is not present. Callers removing
+// several apps at once -- the cascade below, and UninstallAll -- treat it
+// as success rather than failure: a package that another removal already
+// took away has still ended up in the desired state. Only a direct,
+// single-app `goop uninstall foo` surfaces it as an error, where naming
+// a package that was never installed really is a mistake worth reporting.
+var ErrNotInstalled = errors.New("not installed")
+
 func Uninstall(appName string, force bool) error {
 	return uninstallRec(appName, force, nil)
 }
@@ -88,7 +97,7 @@ func Uninstall(appName string, force bool) error {
 func uninstallRec(appName string, force bool, cascadeStack []string) error {
 	appDir := paths.App(appName)
 	if _, err := os.Stat(appDir); err != nil {
-		return fmt.Errorf("%s is not installed", appName)
+		return fmt.Errorf("%s is %w", appName, ErrNotInstalled)
 	}
 
 	if !force {
@@ -134,7 +143,14 @@ func uninstallRec(appName string, force bool, cascadeStack []string) error {
 		if err == nil && len(dependents) > 0 {
 			Logf("%s: also removing dependent package(s): %s", appName, strings.Join(dependents, ", "))
 			for _, dep := range dependents {
-				if err := uninstallRec(dep, force, append(append([]string{}, cascadeStack...), appName)); err != nil {
+				err := uninstallRec(dep, force, append(append([]string{}, cascadeStack...), appName))
+				// Already gone is not a failure: under UninstallAll the
+				// dependent may be removed by its own concurrent goroutine
+				// between dependentsOf listing it and this call. Treating
+				// that as an error aborted the parent removal and left the
+				// dependency itself installed -- reproduced 5/5 on a tree of
+				// four packages sharing one dependency.
+				if err != nil && !errors.Is(err, ErrNotInstalled) {
 					return fmt.Errorf("%s: removing dependent %s: %w", appName, dep, err)
 				}
 			}

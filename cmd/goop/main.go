@@ -211,6 +211,7 @@ func printUsage() {
 	cmd("", "depends resolve recursively, with cycle + conflict detection (A4)")
 	cmd("", "or maven:[reponame/]groupId:artifactId:version:classifier:packaging -- needs `goop maven-repo add` first")
 	cmd("goop uninstall <name>... [--force]", "refuses if still referenced by another profile unless --force (see `goop why`)")
+	cmd("goop uninstall --all [--force]", "remove every installed app (use --force to bypass profile safety)")
 	cmd("goop update [name]... [--no-update]", "upgrade to the bucket's current version; all installed if none given (FR-05)")
 	cmd("", "refreshes buckets first if stale -- without that it would report 'up to date' against old data")
 	fmt.Fprintln(os.Stderr)
@@ -909,15 +910,35 @@ func sortedKeys(m map[string]error) []string {
 func cmdUninstall(args []string) int {
 	var names []string
 	force := false
+	all := false
 	for _, a := range args {
 		if a == "--force" {
 			force = true
 			continue
 		}
+		if a == "--all" {
+			all = true
+			continue
+		}
 		names = append(names, a)
 	}
+	if all {
+		errs := installer.UninstallAll(force)
+		if errs == nil {
+			fmt.Println(ui.Dim("no apps installed"))
+			return 0
+		}
+		exit := 0
+		for _, name := range sortedKeys(errs) {
+			if err := errs[name]; err != nil {
+				ui.Fail("uninstall %s: %v", name, err)
+				exit = 1
+			}
+		}
+		return exit
+	}
 	if len(names) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: goop uninstall <name>... [--force]")
+		fmt.Fprintln(os.Stderr, "usage: goop uninstall <name>... [--force] | --all [--force]")
 		return 2
 	}
 	exit := 0
