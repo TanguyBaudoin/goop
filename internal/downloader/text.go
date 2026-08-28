@@ -6,14 +6,13 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 )
 
 // FetchText downloads url's body as text through the same authenticated,
 // proxied client as Get, for small text content (e.g. a Maven .sha1
 // sidecar) that doesn't need to touch disk.
 func FetchText(rawURL string) (string, error) {
-	if strings.HasPrefix(rawURL, "file://") {
+	if IsFileURL(rawURL) {
 		src, err := fileURLToPath(rawURL)
 		if err != nil {
 			return "", err

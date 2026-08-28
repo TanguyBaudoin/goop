@@ -16,6 +16,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -203,23 +204,67 @@ func FetchUnverified(url, destPath string) error {
 	return nil
 }
 
-// fileURLToPath converts a file:// URL to a local filesystem path,
-// handling Windows paths correctly (file:///C:/... -> C:\...).
-func fileURLToPath(rawURL string) (string, error) {
-	// Strip file:// prefix
-	const prefix = "file://"
-	if !strings.HasPrefix(rawURL, prefix) {
-		return "", fmt.Errorf("not a file URL")
+// uncPrefix is the leading separator pair that marks a UNC path
+// (\servershare). Built from os.PathSeparator rather than written as
+// a literal so the source carries no bare backslash escapes.
+var uncPrefix = string(os.PathSeparator) + string(os.PathSeparator)
+
+// IsFileURL reports whether rawURL names a local file source rather than
+// something to fetch over the network.
+func IsFileURL(rawURL string) bool {
+	return strings.HasPrefix(strings.ToLower(rawURL), "file://")
+}
+
+// IsMachineLocalFileURL reports whether rawURL is a file:// URL naming a
+// path that only exists on this machine -- a drive-letter path such as
+// file:///C:/tools/jdk.zip. A UNC URL (file://server/share/...) is not
+// machine-local: it resolves the same way from any host that can reach
+// the share, which is what makes it usable in a shared lockfile.
+func IsMachineLocalFileURL(rawURL string) bool {
+	if !IsFileURL(rawURL) {
+		return false
 	}
-	p := rawURL[len(prefix):]
-	// file:///C:/... -> /C:/..., strip leading /
+	p, err := fileURLToPath(rawURL)
+	if err != nil {
+		return false
+	}
+	return !strings.HasPrefix(p, uncPrefix)
+}
+
+// fileURLToPath converts a file:// URL to a local filesystem path.
+//
+// Parsed as a URL rather than string-sliced, which is what makes the two
+// forms that matter work. url.Path is percent-decoded, so a share called
+// "Program Files" survives; and a non-empty url.Host is a UNC authority,
+// so file://server/share/x.zip becomes \server\share\x.zip instead of
+// the relative path "server\share\x.zip" that slicing produced -- the
+// standard UNC form was the one portable spelling, and it was the one
+// that silently did the wrong thing.
+func fileURLToPath(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parse file URL %q: %w", rawURL, err)
+	}
+	if !strings.EqualFold(u.Scheme, "file") {
+		return "", fmt.Errorf("not a file URL: %q", rawURL)
+	}
+
+	// file://localhost/C:/... is spelled with a host but means "here".
+	if u.Host != "" && !strings.EqualFold(u.Host, "localhost") {
+		return uncPrefix + u.Host + filepath.FromSlash(u.Path), nil
+	}
+
+	p := u.Path
+	// file:///C:/... arrives as /C:/... -- drop the leading separator.
 	if len(p) > 2 && p[0] == '/' && p[2] == ':' {
-		p = p[1:] // "/C:/..." -> "C:/..."
+		p = p[1:]
 	}
 	return filepath.FromSlash(p), nil
 }
 
-// fetchFile copies a local file (from a file:// URL) to dest.
+// fetchFile copies a local file (from a file:// URL) to dest. The copy
+// is still hash-verified by the caller, so a local source is trusted no
+// further than a remote one.
 func fetchFile(rawURL, dest string) error {
 	src, err := fileURLToPath(rawURL)
 	if err != nil {
@@ -234,12 +279,17 @@ func fetchFile(rawURL, dest string) error {
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(w, r)
-	err2 := w.Close()
-	if err != nil {
-		return err
+	_, copyErr := io.Copy(w, r)
+	closeErr := w.Close()
+	if copyErr != nil {
+		// Leave no half-written file behind for the next run to trip on.
+		os.Remove(dest)
+		return copyErr
 	}
-	return err2
+	if closeErr != nil {
+		os.Remove(dest)
+	}
+	return closeErr
 }
 
 // fetch downloads url to dest. For the common case (most manifest
@@ -250,7 +300,7 @@ func fetchFile(rawURL, dest string) error {
 // Range-capable file does it abandon that (still-unread, so cheap to
 // discard) response and switch to fetchChunked.
 func fetch(url, dest, label string) error {
-	if strings.HasPrefix(url, "file://") {
+	if IsFileURL(url) {
 		return fetchFile(url, dest)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), overallTimeout)
@@ -411,7 +461,7 @@ func (w *offsetWriter) Write(p []byte) (int, error) {
 }
 
 func fetchSerial(ctx context.Context, url, dest, label string) error {
-	if strings.HasPrefix(url, "file://") {
+	if IsFileURL(url) {
 		return fetchFile(url, dest)
 	}
 
