@@ -11,6 +11,7 @@ package downloader
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -398,53 +399,108 @@ func fetchChunked(ctx context.Context, url, dest string, size int64, t *tracker)
 	return nil
 }
 
-func fetchRange(ctx context.Context, url string, f *os.File, start, end int64, t *tracker) error {
+// statusError carries an HTTP status code so the retry logic can tell a
+// server hiccup from a definitive answer.
+type statusError struct {
+	code   int
+	status string
+	want   string
+}
+
+func (e *statusError) Error() string {
+	if e.want != "" {
+		return fmt.Sprintf("got status %s, want %s", e.status, e.want)
+	}
+	return fmt.Sprintf("unexpected status %s", e.status)
+}
+
+// retryable reports whether err is worth another attempt. A transport
+// error (connection reset, timeout) is; so are 5xx, 429 and 408, which
+// say "not now". Every other status is the server's actual answer --
+// retrying a 404 or a 401 only delays a message the user needs to see,
+// and TR-08 makes that message part of the product.
+func retryable(err error) bool {
+	var se *statusError
+	if errors.As(err, &se) {
+		return se.code == http.StatusTooManyRequests ||
+			se.code == http.StatusRequestTimeout ||
+			se.code >= 500
+	}
+	// Not a status at all: a transport-level failure, worth retrying.
+	return true
+}
+
+// backoffUnit is the exponential-backoff base. A variable, not a
+// constant, purely so tests can shrink it -- nothing at runtime changes it.
+var backoffUnit = time.Second
+
+// backoffDelay waits before attempt n (1-based), returning early if ctx
+// is cancelled. Exponential from 2s, capped at 30s, with +/-25% jitter so
+// several chunks failing together do not retry in lockstep.
+func backoffDelay(ctx context.Context, attempt int) error {
+	d := time.Duration(1<<uint(attempt)) * backoffUnit
+	if limit := 30 * backoffUnit; d > limit {
+		d = limit
+	}
+	jittered := time.Duration(float64(d) * (0.75 + 0.5*rand.Float64()))
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(jittered):
+		return nil
+	}
+}
+
+// fetchRange downloads [start,end] into f at the right offset, returning
+// how many bytes it wrote so a retry can discount a partial attempt from
+// the shared progress tracker.
+func fetchRange(ctx context.Context, url string, f *os.File, start, end int64, t *tracker) (int64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusPartialContent {
-		return fmt.Errorf("range request got status %s, want 206", resp.Status)
+		return 0, &statusError{code: resp.StatusCode, status: resp.Status, want: "206"}
 	}
 
-	_, err = io.Copy(&trackingWriter{w: &offsetWriter{f: f, offset: start}, t: t}, resp.Body)
-	return err
+	n, err := io.Copy(&trackingWriter{w: &offsetWriter{f: f, offset: start}, t: t}, resp.Body)
+	return n, err
 }
 
-// fetchRangeWithRetry wraps fetchRange with retries on transient errors,
-// using exponential backoff (base 1s, max 30s). A chunk that fails all
-// retries propagates the last error up; the caller (fetchChunked) falls
-// back to fetchSerial in that case rather than aborting the whole download.
+// fetchRangeWithRetry wraps fetchRange with retries on transient errors.
+// A chunk that exhausts them propagates the last error, and the caller
+// (fetchChunked) falls back to fetchSerial rather than aborting.
 func fetchRangeWithRetry(ctx context.Context, url string, f *os.File, start, end int64, t *tracker) error {
 	var lastErr error
 	for attempt := range maxChunkRetries {
 		if attempt > 0 {
-			backoff := time.Duration(1<<uint(attempt)) * time.Second
-			if backoff > 30*time.Second {
-				backoff = 30 * time.Second
-			}
-			// Add jitter: ±25%
-			jitter := time.Duration(float64(backoff) * (0.75 + 0.5*rand.Float64()))
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(jitter):
+			if err := backoffDelay(ctx, attempt); err != nil {
+				return err
 			}
 		}
-		if err := fetchRange(ctx, url, f, start, end, t); err != nil {
-			lastErr = err
-			continue
+		n, err := fetchRange(ctx, url, f, start, end, t)
+		if err == nil {
+			return nil
 		}
-		return nil
+		// The retry rewrites this range from its start, so the bytes the
+		// failed attempt already reported must come back off the shared
+		// tracker or the progress bar counts them twice and overruns.
+		if n > 0 {
+			t.add(-n)
+		}
+		lastErr = err
+		if !retryable(err) {
+			return err
+		}
 	}
-	return fmt.Errorf("chunk %d-%d failed after %d retries: %w", start, end, maxChunkRetries, lastErr)
+	return fmt.Errorf("chunk %d-%d failed after %d attempts: %w", start, end, maxChunkRetries, lastErr)
 }
 
 // offsetWriter writes sequentially to f starting at a fixed offset, so
@@ -468,61 +524,67 @@ func fetchSerial(ctx context.Context, url, dest, label string) error {
 	var lastErr error
 	for attempt := range maxChunkRetries {
 		if attempt > 0 {
-			backoff := time.Duration(1<<uint(attempt)) * time.Second
-			if backoff > 30*time.Second {
-				backoff = 30 * time.Second
-			}
-			jitter := time.Duration(float64(backoff) * (0.75 + 0.5*rand.Float64()))
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(jitter):
+			if err := backoffDelay(ctx, attempt); err != nil {
+				return err
 			}
 		}
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err != nil {
-			lastErr = err
-			continue
+		err := fetchSerialOnce(ctx, url, dest, label)
+		if err == nil {
+			return nil
 		}
-
-		// auth.Transport resolves credentials fresh per request based on
-		// that request's own target host, including on a redirect (each hop
-		// is a separate RoundTrip call) -- so a redirect to a different host
-		// never carries the original host's Authorization along (TR-05).
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			lastErr = err
-			continue
+		lastErr = err
+		// A definitive answer -- 404, 401, 403 -- is reported straight
+		// away. Retrying it only adds seconds of backoff in front of a
+		// message the user needs, and makes a dead manifest URL, the most
+		// common failure of all, look like a slow network instead.
+		if !retryable(err) {
+			return err
 		}
-		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
-			lastErr = fmt.Errorf("unexpected status %s", resp.Status)
-			continue
-		}
-
-		t := startTracker(dest, label, resp.ContentLength)
-		f, err := os.Create(dest)
-		if err != nil {
-			resp.Body.Close()
-			t.finish()
-			lastErr = err
-			continue
-		}
-
-		_, copyErr := io.Copy(&trackingWriter{w: f, t: t}, resp.Body)
-		f.Close()
-		resp.Body.Close()
-		t.finish()
-
-		if copyErr != nil {
-			lastErr = copyErr
-			os.Remove(dest)
-			continue
-		}
-		return nil
 	}
-	return fmt.Errorf("download failed after %d retries: %w", maxChunkRetries, lastErr)
+	return fmt.Errorf("download failed after %d attempts: %w", maxChunkRetries, lastErr)
+}
+
+// fetchSerialOnce is a single whole-file attempt. Its progress tracker
+// lives and dies inside the attempt, so a retry restarts the bar rather
+// than continuing a count that no longer matches the bytes on disk.
+func fetchSerialOnce(ctx context.Context, url, dest, label string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+
+	// auth.Transport resolves credentials fresh per request based on
+	// that request's own target host, including on a redirect (each hop
+	// is a separate RoundTrip call) -- so a redirect to a different host
+	// never carries the original host's Authorization along (TR-05).
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return &statusError{code: resp.StatusCode, status: resp.Status}
+	}
+
+	t := startTracker(dest, label, resp.ContentLength)
+	defer t.finish()
+
+	f, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(&trackingWriter{w: f, t: t}, resp.Body)
+	closeErr := f.Close()
+	if copyErr != nil {
+		os.Remove(dest)
+		return copyErr
+	}
+	if closeErr != nil {
+		os.Remove(dest)
+		return closeErr
+	}
+	return nil
 }
 
 func verifyFile(path string, parsed manifest.ParsedHash) error {
