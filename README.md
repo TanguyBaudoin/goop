@@ -39,6 +39,24 @@ so you can go back whenever you like.
 
 To remove goop entirely, `scripts/uninstall.ps1` undoes all of it.
 
+### Updating goop itself
+
+Run the same line again:
+
+```powershell
+irm https://raw.githubusercontent.com/TanguyBaudoin/goop/main/scripts/install.ps1 | iex
+```
+
+It replaces the binary with the current release and leaves everything
+else alone — your packages, buckets, profiles and `PATH` are untouched,
+and it won't duplicate anything. `goop version` tells you what you're on.
+
+There is no `goop self-update` yet. Windows won't let a running program
+overwrite itself, so it needs a little care, and re-running the installer
+does the job in the meantime.
+
+Note that `goop update` updates your *packages*, not goop.
+
 ## Why you might want it
 
 **It's fast.** Scoop starts a PowerShell interpreter for every
@@ -317,7 +335,31 @@ as Scoop does it.
 ## What's not there yet
 
 **One maintainer.** The specification called this the project's critical
-risk from day one, and it's still true. Everything below is smaller.
+risk on day one and it is still true: one person, no second reviewer.
+Everything else on this list is smaller.
+
+Worth being plain about what that means for you, because it is the
+question a package manager has to answer before anyone sensible adopts
+it. **Nothing here traps you.** Packages are installed in Scoop's own
+directory layout — `apps\<name>\<version>\` with a `current` junction —
+not in some format only goop understands. Downloads sit in a plain cache
+directory, and lockfiles are plain JSON you can read. If goop goes quiet,
+your tools are still on disk, still runnable, and Scoop can be pointed at
+the same tree. Requirement NR-07 exists so that trusting this project is
+not a one-way door.
+
+Being equally plain about the limit: goop records its own metadata
+(`goop-install.json`) rather than Scoop's `install.json`, so Scoop would
+know how to *run* those packages but not which bucket to update them
+from. Handing a tree back is not a documented one-command procedure yet.
+
+The release path holds no personal secret either — CI publishes with
+GitHub's own token — so someone else could pick the project up without
+needing anything only the current maintainer has.
+
+If you want to help, the missing install harness below is the most
+valuable thing anyone could contribute, and it needs no knowledge of
+goop's internals.
 
 **Installation isn't verified automatically.** CI checks that all 1635
 manifests in `main` decode correctly on every push, but actually

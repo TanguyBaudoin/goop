@@ -72,7 +72,18 @@ is not a replacement.
 | NR-04 | User data preserved across versions (`persist`) | **Met** |
 | NR-05 | Third-party buckets usable without special configuration | **Met** |
 | NR-06 | Shim behaviour strictly equivalent | **Met** |
-| NR-07 | Reversibility: a user can return to Scoop without reinstalling their tools | **Met** |
+| NR-07 | Reversibility: a user can return to Scoop without reinstalling their tools | **Partial** |
+
+**NR-07 is partial, and was overstated until now.** The on-disk layout is
+genuinely Scoop's — `apps\<name>\<version>\` with a `current` junction —
+so packages installed by goop are not locked into a private format and
+remain runnable if goop is abandoned. But goop records its own
+`goop-install.json` rather than Scoop's `install.json`, so Scoop taking
+over such a tree would know how to run those packages and not which
+bucket to update them from. The direction that *is* verified is the other
+one: `goop import` adopts a real Scoop installation without reinstalling
+anything (CPT-07). Handing a tree back has never been performed or
+documented, which is what the status now says.
 
 ## 3. Manifest compatibility — the structuring requirement
 
@@ -392,7 +403,7 @@ by one person is a trap for its users.
 | GOV-04 | Conventional Commits | **Diverged** |
 | GOV-05 | Architecture documentation in the repository, current at every milestone | **Met** |
 | GOV-06 | Code opened; outside contribution possible from J3 | **Met** |
-| GOV-07 | Documented reversibility (NR-07): return to Scoop without reinstalling | **Met** |
+| GOV-07 | Documented reversibility (NR-07): return to Scoop without reinstalling | **Partial** |
 
 > GOV-07 is also the adoption argument: "it reads the same manifests, you
 > can go back to Scoop whenever you like" is defensible. "I wrote my own
@@ -455,7 +466,7 @@ means building from a clone.
 | 2 | `update` and `status` gain at least an order of magnitude over Scoop | **Met** | Measured head-to-head, ~60× |
 | 3 | A `sync` on two separate machines yields matching trees | **Unverified** | Single-machine only; never tested across two |
 | 4 | No plaintext secret on disk, in a log, or in a URL | **Met** | FR-32/FR-35 |
-| 5 | No regression on NR-01 to NR-07, verified point by point | **Met** | Audited against real Scoop source |
+| 5 | No regression on NR-01 to NR-07, verified point by point | **Partial** | NR-07 partial, see §2.1 |
 | 6 | A full CMake/Ninja build shows no duration regression | **Unverified** | Never measured |
 | 7 | An existing Scoop install imports without reinstalling packages | **Met** | Real migration performed |
 | 8 | CI fails with a dedicated exit code when state diverges from the lockfile | **Met** | Exit code 3 |
@@ -512,3 +523,6 @@ Collected from the statuses above, in the order they should be addressed.
    machinery works; the corpus never uses it.
 7. **Signature verification is manual** (A5, FR-41). No manifest supplies
    a signature, so nothing verifies automatically.
+8. **Reversibility is one-way in practice** (NR-07). `goop import` adopts
+   a Scoop tree; handing one back to Scoop has never been performed or
+   documented, because goop writes its own install metadata.
