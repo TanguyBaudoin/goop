@@ -13,7 +13,54 @@ built from — quote it in bug reports.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `goop uninstall --all` removes every installed package in one command.
+- `goop profile reset` merges every profile into `default`, deletes the
+  named profiles, and makes `default` active again.
+- Buckets can be added and updated **without git**: when git is absent
+  and the URL is a GitHub one, goop falls back to downloading a codeload
+  archive. This removes a bootstrap circularity — goop can install git,
+  but previously only from a bucket it could not add without git.
+- `file://` sources, so a bucket or manifest can point at a local path or
+  a network share. Hash verification is unchanged, so a local source is
+  trusted no further than a remote one.
+- `scripts/uninstall.ps1` reverses `install.ps1`: removes the PATH
+  entries and `GOOP_HOME`, optionally uninstalls managed packages first,
+  and deletes the tree. Confirms before acting; `-DryRun`,
+  `-PreserveApps` and `-SkipSelfdestruct` are available.
+- Downloads retry transient failures with exponential backoff and jitter,
+  and the per-download timeout is now an hour rather than 15 minutes.
+
+### Changed
+
+- Git buckets update with `fetch` + `reset --hard` + `clean -fd` instead
+  of `pull --ff-only`. A bucket is a disposable mirror, and `pull`
+  refused outright whenever upstream added a file whose path already
+  existed untracked in the clone.
+- Extraction helpers are no longer recorded as functional dependencies.
+  A manifest that declares 7zip under `depends` *and* needs it to unpack
+  its own archive was making `goop uninstall 7zip` cascade into every
+  such package.
+- `goop lock` warns when an entry pins a machine-local `file://` source
+  (a drive-letter path), which cannot resolve on another machine. UNC
+  paths do resolve elsewhere and are not flagged.
+
+### Fixed
+
+- `NO_PROXY` entries written as `*.example.com` — the form curl and pip
+  document — matched nothing, so the proxy was used for hosts that
+  should have bypassed it.
+- `file://` URLs in the standard UNC form (`file://server/share/x.zip`)
+  resolved to a *relative* path, and percent-encoding was not decoded, so
+  a share named `Program Files` failed. Both were the forms that mattered
+  most: UNC is the only spelling that travels between machines.
+- Downloads retried every non-200 status, so a 404 — a dead URL in a
+  manifest, the most common failure there is — took three attempts and
+  seconds of backoff before reporting. Only 5xx, 429, 408 and
+  transport-level errors are retried now.
+- A retried range chunk counted its already-reported bytes twice, so a
+  chunked download that retried could show more than 100% progress.
 
 ## [0.1.0] — unreleased
 

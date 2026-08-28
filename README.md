@@ -526,6 +526,40 @@ to tune, default 8) — safe under the race detector, ~5x faster on a
 real batch. Large single files download over concurrent HTTP Range
 requests when the server supports it.
 
+## Offline and restricted networks
+
+The download cache is keyed by **content hash**, not by URL, and it is
+consulted before any fetch. That makes a populated cache portable: run
+`goop download` where the network reaches, copy `<GoopDir>\cache` to the
+isolated machine, and `goop sync` there resolves every entry from the
+cache without a single request — the lockfile keeps the canonical remote
+URLs, which stay meaningful and portable.
+
+```powershell
+goop download <apps>          # connected machine: fills the cache by hash
+goop lock --file .\chipA.lock.json
+# copy the cache directory across, then on the isolated machine:
+goop sync --file .\chipA.lock.json
+```
+
+Manifests may also point at a local path or a network share with a
+`file://` URL. Hash verification is unchanged, so a local source is
+trusted no further than a remote one. Two spellings matter:
+
+- `file://server/share/tool.zip` — a UNC share. Resolves identically from
+  any machine that can reach it, so it is safe in a shared lockfile.
+- `file:///D:/artifacts/tool.zip` — a drive-letter path. Exists only on
+  the machine that wrote it; `goop lock` warns when one is pinned.
+
+A bucket can be added without git at all — if git is missing and the URL
+is a GitHub one, goop downloads a codeload archive instead. That is what
+makes a clean machine bootstrappable: goop can install git, but until
+this it could only do so from a bucket it could not add.
+
+Behind a proxy, `goop config set-proxy` applies to both downloads and git
+bucket operations, and `NO_PROXY` is honoured including `*.example.com`
+wildcards.
+
 ## Install
 
 goop isn't published as a release yet, so there's no `irm get.goop.sh |
@@ -617,6 +651,8 @@ $env:GOOP_HOME = "$HOME\goop-test"   # optional: keep test state separate from a
 .\build\goop.exe download jq          # fetch + verify into the cache, install nothing
 .\build\goop.exe reset jq             # rebuild shims/shortcuts/env for an existing install
 .\build\goop.exe cleanup              # drop superseded versions
+.\build\goop.exe profile reset        # merge every profile into default
+.\build\goop.exe uninstall --all      # remove everything (refuses apps another profile needs)
 
 # provenance and signatures
 .\build\goop.exe info ripgrep
