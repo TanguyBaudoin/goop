@@ -13,10 +13,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -47,14 +49,15 @@ var httpClient = &http.Client{
 // overallTimeout bounds an entire download (connect through last byte of
 // body), so a connection that stalls partway through streaming still
 // gets cut off instead of hanging forever.
-const overallTimeout = 15 * time.Minute
+const overallTimeout = 1 * time.Hour
 
 const (
 	// minChunkedSize is the threshold below which chunked downloading
 	// isn't worth its own overhead (extra HEAD request, connection
 	// setup per chunk).
-	minChunkedSize = 8 * 1024 * 1024
-	numChunks      = 4
+	minChunkedSize  = 8 * 1024 * 1024
+	numChunks       = 4
+	maxChunkRetries = 3 // per-chunk retries on transient failure before falling back to serial
 )
 
 // downloadLocks serializes concurrent Get calls that target the exact
@@ -200,6 +203,45 @@ func FetchUnverified(url, destPath string) error {
 	return nil
 }
 
+// fileURLToPath converts a file:// URL to a local filesystem path,
+// handling Windows paths correctly (file:///C:/... -> C:\...).
+func fileURLToPath(rawURL string) (string, error) {
+	// Strip file:// prefix
+	const prefix = "file://"
+	if !strings.HasPrefix(rawURL, prefix) {
+		return "", fmt.Errorf("not a file URL")
+	}
+	p := rawURL[len(prefix):]
+	// file:///C:/... -> /C:/..., strip leading /
+	if len(p) > 2 && p[0] == '/' && p[2] == ':' {
+		p = p[1:] // "/C:/..." -> "C:/..."
+	}
+	return filepath.FromSlash(p), nil
+}
+
+// fetchFile copies a local file (from a file:// URL) to dest.
+func fetchFile(rawURL, dest string) error {
+	src, err := fileURLToPath(rawURL)
+	if err != nil {
+		return err
+	}
+	r, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	w, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(w, r)
+	err2 := w.Close()
+	if err != nil {
+		return err
+	}
+	return err2
+}
+
 // fetch downloads url to dest. For the common case (most manifest
 // assets are a few MB) this is exactly one request, same as a plain
 // sequential download -- there's no separate probe request adding
@@ -208,6 +250,9 @@ func FetchUnverified(url, destPath string) error {
 // Range-capable file does it abandon that (still-unread, so cheap to
 // discard) response and switch to fetchChunked.
 func fetch(url, dest, label string) error {
+	if strings.HasPrefix(url, "file://") {
+		return fetchFile(url, dest)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), overallTimeout)
 	defer cancel()
 
@@ -287,7 +332,7 @@ func fetchChunked(ctx context.Context, url, dest string, size int64, t *tracker)
 		wg.Add(1)
 		go func(start, end int64) {
 			defer wg.Done()
-			if err := fetchRange(ctx, url, f, start, end, t); err != nil {
+			if err := fetchRangeWithRetry(ctx, url, f, start, end, t); err != nil {
 				errCh <- err
 			}
 		}(start, end)
@@ -323,6 +368,35 @@ func fetchRange(ctx context.Context, url string, f *os.File, start, end int64, t
 	return err
 }
 
+// fetchRangeWithRetry wraps fetchRange with retries on transient errors,
+// using exponential backoff (base 1s, max 30s). A chunk that fails all
+// retries propagates the last error up; the caller (fetchChunked) falls
+// back to fetchSerial in that case rather than aborting the whole download.
+func fetchRangeWithRetry(ctx context.Context, url string, f *os.File, start, end int64, t *tracker) error {
+	var lastErr error
+	for attempt := range maxChunkRetries {
+		if attempt > 0 {
+			backoff := time.Duration(1<<uint(attempt)) * time.Second
+			if backoff > 30*time.Second {
+				backoff = 30 * time.Second
+			}
+			// Add jitter: ±25%
+			jitter := time.Duration(float64(backoff) * (0.75 + 0.5*rand.Float64()))
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(jitter):
+			}
+		}
+		if err := fetchRange(ctx, url, f, start, end, t); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("chunk %d-%d failed after %d retries: %w", start, end, maxChunkRetries, lastErr)
+}
+
 // offsetWriter writes sequentially to f starting at a fixed offset, so
 // io.Copy can stream a range's body straight to its place in the file.
 type offsetWriter struct {
@@ -337,37 +411,68 @@ func (w *offsetWriter) Write(p []byte) (int, error) {
 }
 
 func fetchSerial(ctx context.Context, url, dest, label string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
+	if strings.HasPrefix(url, "file://") {
+		return fetchFile(url, dest)
 	}
 
-	// auth.Transport resolves credentials fresh per request based on
-	// that request's own target host, including on a redirect (each hop
-	// is a separate RoundTrip call) -- so a redirect to a different host
-	// never carries the original host's Authorization along (TR-05).
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status %s", resp.Status)
-	}
+	var lastErr error
+	for attempt := range maxChunkRetries {
+		if attempt > 0 {
+			backoff := time.Duration(1<<uint(attempt)) * time.Second
+			if backoff > 30*time.Second {
+				backoff = 30 * time.Second
+			}
+			jitter := time.Duration(float64(backoff) * (0.75 + 0.5*rand.Float64()))
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(jitter):
+			}
+		}
 
-	t := startTracker(dest, label, resp.ContentLength)
-	defer t.finish()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			lastErr = err
+			continue
+		}
 
-	f, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
+		// auth.Transport resolves credentials fresh per request based on
+		// that request's own target host, including on a redirect (each hop
+		// is a separate RoundTrip call) -- so a redirect to a different host
+		// never carries the original host's Authorization along (TR-05).
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("unexpected status %s", resp.Status)
+			continue
+		}
 
-	if _, err := io.Copy(&trackingWriter{w: f, t: t}, resp.Body); err != nil {
-		return err
+		t := startTracker(dest, label, resp.ContentLength)
+		f, err := os.Create(dest)
+		if err != nil {
+			resp.Body.Close()
+			t.finish()
+			lastErr = err
+			continue
+		}
+
+		_, copyErr := io.Copy(&trackingWriter{w: f, t: t}, resp.Body)
+		f.Close()
+		resp.Body.Close()
+		t.finish()
+
+		if copyErr != nil {
+			lastErr = copyErr
+			os.Remove(dest)
+			continue
+		}
+		return nil
 	}
-	return nil
+	return fmt.Errorf("download failed after %d retries: %w", maxChunkRetries, lastErr)
 }
 
 func verifyFile(path string, parsed manifest.ParsedHash) error {
