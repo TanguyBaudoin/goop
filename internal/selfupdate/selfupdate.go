@@ -29,7 +29,9 @@ import (
 // API, whose unauthenticated limit is 60 requests per hour *per IP* --
 // shared across everyone behind a corporate NAT, and enough to make an
 // update fail for someone who has made no API calls at all.
-const ReleaseBase = "https://github.com/TanguyBaudoin/goop/releases/latest/download"
+// ReleaseBase is a var rather than a const only so tests can point it
+// elsewhere; nothing at runtime changes it.
+var ReleaseBase = "https://github.com/TanguyBaudoin/goop/releases/latest/download"
 
 // oldSuffix marks the outgoing binary. Windows will not let a running
 // image be deleted or overwritten, but it will let it be *renamed*, so
@@ -58,7 +60,20 @@ func Update(currentVersion string, force bool) (Result, error) {
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}
+	return updateAt(exe, ReleaseBase, currentVersion, force)
+}
 
+// updateAt is Update with the target and the release source given
+// explicitly.
+//
+// Split out to make the upgrade path testable at all. Update takes its
+// target from os.Executable(), which inside a test is the test binary --
+// so a test of Update would try to replace the thing running it. And the
+// interesting direction, upgrading to something newer, could otherwise
+// only ever be exercised by publishing two releases and hoping, since a
+// freshly released binary and the latest release are by definition the
+// same version.
+func updateAt(exe, base, currentVersion string, force bool) (Result, error) {
 	// A leftover from a previous update, which could not be deleted then
 	// because it was still the running image.
 	_ = os.Remove(exe + oldSuffix)
@@ -66,7 +81,7 @@ func Update(currentVersion string, force bool) (Result, error) {
 	// checksums.txt is a few dozen bytes, so fetching it first turns
 	// "am I current?" into a cheap question instead of a 14 MB one.
 	Logf("checking for a newer release")
-	sums, err := downloader.FetchText(ReleaseBase + "/checksums.txt")
+	sums, err := downloader.FetchText(base + "/checksums.txt")
 	if err != nil {
 		return Result{}, fmt.Errorf("fetching checksums.txt: %w", err)
 	}
@@ -86,7 +101,7 @@ func Update(currentVersion string, force bool) (Result, error) {
 	// Downloaded through goop's own client, so proxy, per-host auth and
 	// retries all apply, and Get verifies the hash before returning.
 	Logf("downloading the new binary")
-	staged, err := downloader.Get(paths.Cache(), ReleaseBase+"/goop.exe", "goop.exe", "sha256:"+want)
+	staged, err := downloader.Get(paths.Cache(), base+"/goop.exe", "goop.exe", "sha256:"+want)
 	if err != nil {
 		return Result{}, fmt.Errorf("downloading goop.exe: %w", err)
 	}
