@@ -274,10 +274,11 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr)
 
 	section("auth")
-	cmd("goop auth add <host> bearer <token>", "")
-	cmd("goop auth add <host> basic <user> <password>", "")
+	cmd("goop auth add <host> bearer", "")
+	cmd("goop auth add <host> basic <user>", "")
 	cmd("goop auth remove <host>", "")
 	cmd("goop auth list", "hosts + type only, secrets are never shown (FR-34)")
+	cmd("", "the token/password is prompted for, never passed as an argument -- pipe it in for CI")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Credentials resolve env var -> Credential Manager -> anonymous (FR-33)."))
 	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Env var for a host: GOOP_AUTH_<HOST>, set to \"bearer:<token>\" or \"basic:<user>:<password>\"."))
@@ -1672,29 +1673,46 @@ func cmdAuth(args []string) int {
 
 func cmdAuthAdd(args []string) int {
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: goop auth add <host> bearer <token>")
-		fmt.Fprintln(os.Stderr, "       goop auth add <host> basic <user> <password>")
+		fmt.Fprintln(os.Stderr, "usage: goop auth add <host> bearer")
+		fmt.Fprintln(os.Stderr, "       goop auth add <host> basic <user>")
 		return 2
 	}
 	host, kind := args[0], args[1]
-	var username, secret string
+	var username, prompt string
 	switch kind {
 	case "bearer":
-		if len(args) != 3 {
-			fmt.Fprintln(os.Stderr, "usage: goop auth add <host> bearer <token>")
+		if len(args) != 2 {
+			fmt.Fprintln(os.Stderr, "usage: goop auth add <host> bearer")
+			fmt.Fprintln(os.Stderr, ui.Dim("  the token is asked for, not passed as an argument -- an argument would"))
+			fmt.Fprintln(os.Stderr, ui.Dim("  land in your shell history and in the process list. Pipe it in for CI:"))
+			fmt.Fprintln(os.Stderr, ui.Dim("  echo $TOKEN | goop auth add "+host+" bearer"))
 			return 2
 		}
-		secret = args[2]
+		prompt = fmt.Sprintf("Token for %s: ", host)
 	case "basic":
-		if len(args) != 4 {
-			fmt.Fprintln(os.Stderr, "usage: goop auth add <host> basic <user> <password>")
+		if len(args) != 3 {
+			fmt.Fprintln(os.Stderr, "usage: goop auth add <host> basic <user>")
+			fmt.Fprintln(os.Stderr, ui.Dim("  the password is asked for, not passed as an argument -- an argument"))
+			fmt.Fprintln(os.Stderr, ui.Dim("  would land in your shell history and in the process list."))
 			return 2
 		}
-		username, secret = args[2], args[3]
+		username = args[2]
+		prompt = fmt.Sprintf("Password for %s@%s: ", username, host)
 	default:
 		ui.Fail("auth add: unknown type %q, want bearer or basic", kind)
 		return 2
 	}
+
+	secret, err := ui.ReadSecret(prompt)
+	if err != nil {
+		ui.Fail("auth add: %v", err)
+		return 1
+	}
+	if secret == "" {
+		ui.Fail("auth add: empty secret, nothing stored")
+		return 2
+	}
+
 	if err := credstore.Set(host, kind, username, secret); err != nil {
 		ui.Fail("auth add: %v", err)
 		return 1

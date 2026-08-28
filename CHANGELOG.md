@@ -103,7 +103,9 @@ hash and retry transient failures with exponential backoff, leaving a
 definitive answer such as a 404 to be reported at once. `verify` checks
 minisign signatures; `auth` stores credentials for private buckets in
 the Windows credential store, keyed by host and never written into a
-manifest.
+manifest. Tokens and passwords are prompted for without echo rather than
+passed as arguments, which would land them in shell history and in the
+process list; piping still works for CI.
 
 **Other** — `config` (install root, proxy, `NO_PROXY`, cache limit,
 bucket staleness), `migrate`, and `completion` for PowerShell and bash
