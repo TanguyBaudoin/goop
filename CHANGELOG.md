@@ -16,6 +16,13 @@ built from — quote it in bug reports.
 ### Added
 
 - `goop uninstall --all` removes every installed package in one command.
+- `goop uninstall --all` now requires confirmation. Interactively it asks
+  for the word `uninstall-all` to be typed, after listing what will go;
+  non-interactively — piped or scripted stdin — it **refuses outright**
+  rather than assuming consent. `--yes` is available for callers that
+  have already asked a human. The second half is the point: an automated
+  caller reaching for `uninstall --all --force` now fails closed instead
+  of quietly wiping the machine.
 - `goop profile reset` merges every profile into `default`, deletes the
   named profiles, and makes `default` active again.
 - Buckets can be added and updated **without git**: when git is absent

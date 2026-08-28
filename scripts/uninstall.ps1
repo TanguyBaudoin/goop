@@ -135,7 +135,7 @@ if (-not $SkipSelfdestruct -and $hasGoopExe) {
         if ($appCount -gt 0) {
             Write-Host "Uninstalling $appCount app(s) (this may take a while) ..."
         }
-        & $goopExe uninstall --all --force
+        & $goopExe uninstall --all --force --yes
         if ($LASTEXITCODE -ne 0) {
             Write-Warn "goop uninstall --all exited with code $LASTEXITCODE; some apps may not have been cleanly removed. Continuing with directory cleanup."
         } else {

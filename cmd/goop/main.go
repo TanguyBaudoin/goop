@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -211,7 +212,8 @@ func printUsage() {
 	cmd("", "depends resolve recursively, with cycle + conflict detection (A4)")
 	cmd("", "or maven:[reponame/]groupId:artifactId:version:classifier:packaging -- needs `goop maven-repo add` first")
 	cmd("goop uninstall <name>... [--force]", "refuses if still referenced by another profile unless --force (see `goop why`)")
-	cmd("goop uninstall --all [--force]", "remove every installed app (use --force to bypass profile safety)")
+	cmd("goop uninstall --all [--force] [--yes]", "remove every installed app; asks you to type a word to confirm")
+	cmd("", "refuses outright when stdin is not a terminal -- pass --yes for unattended use")
 	cmd("goop update [name]... [--no-update]", "upgrade to the bucket's current version; all installed if none given (FR-05)")
 	cmd("", "refreshes buckets first if stale -- without that it would report 'up to date' against old data")
 	fmt.Fprintln(os.Stderr)
@@ -942,20 +944,23 @@ func sortedKeys(m map[string]error) []string {
 
 func cmdUninstall(args []string) int {
 	var names []string
-	force := false
-	all := false
+	force, all, yes := false, false, false
 	for _, a := range args {
-		if a == "--force" {
+		switch a {
+		case "--force":
 			force = true
-			continue
-		}
-		if a == "--all" {
+		case "--all":
 			all = true
-			continue
+		case "--yes":
+			yes = true
+		default:
+			names = append(names, a)
 		}
-		names = append(names, a)
 	}
 	if all {
+		if !confirmUninstallAll(yes) {
+			return 2
+		}
 		errs := installer.UninstallAll(force)
 		if errs == nil {
 			fmt.Println(ui.Dim("no apps installed"))
@@ -971,7 +976,7 @@ func cmdUninstall(args []string) int {
 		return exit
 	}
 	if len(names) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: goop uninstall <name>... [--force] | --all [--force]")
+		fmt.Fprintln(os.Stderr, "usage: goop uninstall <name>... [--force] | --all [--force] [--yes]")
 		return 2
 	}
 	exit := 0
@@ -982,6 +987,63 @@ func cmdUninstall(args []string) int {
 		}
 	}
 	return exit
+}
+
+// uninstallAllToken is what has to be typed to confirm `uninstall --all`.
+// Deliberately not "y": removing every installed package is irreversible
+// and should cost a moment's attention rather than a reflex keystroke.
+const uninstallAllToken = "uninstall-all"
+
+// confirmUninstallAll gates the removal of every installed package.
+//
+// Two protections against two different mistakes. The typed word stops a
+// person confirming out of muscle memory. The terminal check stops the
+// command running unattended at all: a piped or scripted stdin cannot
+// consent, so goop refuses rather than assuming it. That second one is
+// the case that matters -- an automated caller, a script or an agent,
+// that reaches for `uninstall --all --force` now fails closed instead of
+// silently wiping the machine.
+//
+// --yes stays for callers that have already asked a human
+// (scripts/uninstall.ps1 prompts, then passes it). No flag can stop a
+// caller that deliberately sets it; what this buys is that the
+// accidental path is no longer a quiet success.
+func confirmUninstallAll(yes bool) bool {
+	records, err := installer.List()
+	if err != nil {
+		ui.Fail("uninstall --all: %v", err)
+		return false
+	}
+	if len(records) == 0 {
+		return true // nothing to lose; the caller reports "no apps installed"
+	}
+	if yes {
+		return true
+	}
+	if !ui.IsTerminal(os.Stdin) {
+		ui.Fail("uninstall --all needs an interactive terminal to confirm")
+		fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Nothing was removed. Pass --yes to run it unattended, once you are certain."))
+		return false
+	}
+
+	names := make([]string, len(records))
+	for i, r := range records {
+		names[i] = r.Name
+	}
+	sort.Strings(names)
+
+	fmt.Fprintf(os.Stderr, "%s %s\n", ui.Yellow(ui.Bang),
+		ui.Bold(fmt.Sprintf("This removes all %d installed package(s) from %s:", len(names), paths.Root())))
+	fmt.Fprintf(os.Stderr, "  %s\n", strings.Join(names, ", "))
+	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Data persisted by those packages goes with them. The download cache is kept."))
+	fmt.Fprintf(os.Stderr, "Type %s to confirm: ", ui.Bold(uninstallAllToken))
+
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil || strings.TrimSpace(line) != uninstallAllToken {
+		ui.Fail("cancelled -- nothing was removed")
+		return false
+	}
+	return true
 }
 
 func cmdUpdate(args []string) int {

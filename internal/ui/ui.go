@@ -62,6 +62,16 @@ func enableVirtualTerminal(f *os.File) bool {
 	return true
 }
 
+// IsTerminal reports whether f is a real console rather than a
+// redirected file or pipe. Unlike enableVirtualTerminal it only asks and
+// changes nothing, so it is safe on stdin -- used to decide whether a
+// destructive command may prompt at all. A command that cannot prompt
+// must refuse rather than assume consent.
+func IsTerminal(f *os.File) bool {
+	var mode uint32
+	return windows.GetConsoleMode(windows.Handle(f.Fd()), &mode) == nil
+}
+
 func paint(code, s string) string {
 	if !Enabled || s == "" {
 		return s
