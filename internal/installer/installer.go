@@ -500,7 +500,7 @@ func installResolved(appName, bucketName, archKey string, resolved manifest.Reso
 		EnvAddedPaths:     envAddedPaths,
 		PSModuleName:      resolved.PSModuleName,
 		Suggest:           resolved.Suggest,
-		Depends:           resolved.Depends,
+		Depends:           functionalDepends(resolved.Depends, resolved),
 		InstalledAt:       time.Now().UTC(),
 	}
 	if err := writeRecord(staging, rec); err != nil {

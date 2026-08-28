@@ -193,6 +193,57 @@ func TestImplicitHelpers(t *testing.T) {
 	}
 }
 
+func TestFunctionalDepends(t *testing.T) {
+	tests := []struct {
+		name     string
+		declared []string
+		r        manifest.Resolved
+		want     []string
+	}{
+		{"no overlap: plain zip keeps deps intact",
+			[]string{"keil", "vcredist"},
+			manifest.Resolved{URLs: []string{"https://h/a.zip"}},
+			[]string{"keil", "vcredist"}},
+		{"manifest declares 7zip + zip url: 7zip filtered out",
+			[]string{"7zip", "keil"},
+			manifest.Resolved{URLs: []string{"https://h/a.7z"}},
+			[]string{"keil"}},
+		{"7zip declared + 7zip url used: 7zip filtered",
+			[]string{"7zip"},
+			manifest.Resolved{URLs: []string{"https://h/a.7z"}},
+			nil},
+		{"innounp declared + innosetup: filtered",
+			[]string{"innounp", "vcredist"},
+			manifest.Resolved{URLs: []string{"https://h/a.exe"}, InnoSetup: true},
+			[]string{"vcredist"}},
+		{"dark declared + script uses Expand-DarkArchive: filtered",
+			[]string{"dark", "keil"},
+			manifest.Resolved{URLs: []string{"https://h/a.exe"}, Installer: manifest.InstallHook{Script: "Expand-DarkArchive $dir"}},
+			[]string{"keil"}},
+		{"no helpers detected: all deps pass through",
+			[]string{"git", "python"},
+			manifest.Resolved{URLs: []string{"https://h/a.zip"}},
+			[]string{"git", "python"}},
+		{"empty declared deps stays empty",
+			nil,
+			manifest.Resolved{URLs: []string{"https://h/a.7z"}, InnoSetup: true},
+			nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := functionalDepends(tt.declared, tt.r)
+			if len(got) != len(tt.want) {
+				t.Fatalf("functionalDepends(%v, _) = %v, want %v", tt.declared, got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("functionalDepends(%v, _) = %v, want %v", tt.declared, got, tt.want)
+				}
+			}
+		})
+	}
+}
+
 func TestContainsString(t *testing.T) {
 	stack := []string{"a", "b"}
 	if !containsString(stack, "b") {

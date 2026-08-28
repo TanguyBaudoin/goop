@@ -59,6 +59,27 @@ func needsSevenZip(r manifest.Resolved) bool {
 	return false
 }
 
+// functionalDepends filters out implicit helper tools from declared
+// dependencies, so Record.Depends only contains functional/runtime
+// dependencies. This separation matters for uninstall cascade and
+// list --tree: if a manifest declares 7zip as a depends AND 7zip
+// would also be detected as an implicit helper for extraction, it's
+// an install-only dependency, not a functional one, and should not
+// appear as a dependency of the app.
+func functionalDepends(declared []string, r manifest.Resolved) []string {
+	helpers := make(map[string]bool, 3)
+	for _, h := range implicitHelpers(r) {
+		helpers[h] = true
+	}
+	var out []string
+	for _, d := range declared {
+		if !helpers[manifest.ParseSpec(d).Name] {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
 // DependencyEntry is one app in a resolved dependency closure.
 type DependencyEntry struct {
 	Name   string
