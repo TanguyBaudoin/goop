@@ -255,6 +255,7 @@ func printUsage() {
 	cmd("goop profile list", "* marks the active one; MEMBERS is how many apps each profile references")
 	cmd("goop profile add <name> <app>...", "declare app(s) as members without installing them")
 	cmd("goop profile remove <name> <app>...", "un-declare, without uninstalling")
+	cmd("goop profile reset", "merge all profiles into default, delete named profiles, reset active")
 	cmd("goop why <name>", "which profile(s) reference name")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("A profile is a named group of app names, not an isolated environment -- installs stay global/shared."))
@@ -482,7 +483,7 @@ func appKnown(name string) bool {
 
 func cmdProfile(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: goop profile <use|list|add|remove> ...")
+		fmt.Fprintln(os.Stderr, "usage: goop profile <use|list|add|remove|reset> ...")
 		return 2
 	}
 	switch args[0] {
@@ -581,8 +582,19 @@ func cmdProfile(args []string) int {
 			ui.Ok("removed %s from profile %s", app, args[1])
 		}
 		return exit
+	case "reset":
+		if len(args) != 1 {
+			fmt.Fprintln(os.Stderr, "usage: goop profile reset")
+			return 2
+		}
+		if err := profile.Reset(); err != nil {
+			ui.Fail("profile reset: %v", err)
+			return 1
+		}
+		ui.Ok("profile reset to default (all members merged into default, named profiles removed)")
+		return 0
 	default:
-		fmt.Fprintln(os.Stderr, "usage: goop profile <use|list|add|remove> ...")
+		fmt.Fprintln(os.Stderr, "usage: goop profile <use|list|add|remove|reset> ...")
 		return 2
 	}
 }

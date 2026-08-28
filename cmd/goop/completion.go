@@ -312,7 +312,7 @@ Register-ArgumentCompleter -Native -CommandName 'goop' -ScriptBlock {
             if ($n -eq 3 -and $tokens[2] -eq 'remove') { return Complete (& goop completion __mavenrepos 2>$null) }
         }
         'profile' {
-            if ($n -eq 2) { return Complete @('use','list','add','remove') }
+            if ($n -eq 2) { return Complete @('use','list','add','remove','reset') }
             if ($n -eq 3 -and $tokens[2] -in 'use','add','remove') { return Complete (& goop completion __profiles 2>$null) }
             if ($n -eq 4 -and $tokens[2] -in 'add','remove') { return Complete (& goop completion __apps 2>$null) }
         }
@@ -367,7 +367,7 @@ _goop_completions() {
             ;;
         profile)
             if [ "$COMP_CWORD" -eq 2 ]; then
-                COMPREPLY=( $(compgen -W "use list add remove" -- "$cur") )
+                COMPREPLY=( $(compgen -W "use list add remove reset" -- "$cur") )
             elif [ "$COMP_CWORD" -eq 3 ] && { [ "${COMP_WORDS[2]}" = "use" ] || [ "${COMP_WORDS[2]}" = "add" ] || [ "${COMP_WORDS[2]}" = "remove" ]; }; then
                 COMPREPLY=( $(compgen -W "$(goop completion __profiles 2>/dev/null)" -- "$cur") )
             elif [ "$COMP_CWORD" -eq 4 ] && { [ "${COMP_WORDS[2]}" = "add" ] || [ "${COMP_WORDS[2]}" = "remove" ]; }; then

@@ -164,6 +164,61 @@ type activeState struct {
 	Active string `json:"active,omitempty"`
 }
 
+// Reset consolidates every profile's members into the Default profile,
+// removes all non-default profile files, and resets the active profile
+// back to Default.
+func Reset() error {
+	profileMu.Lock()
+	defer profileMu.Unlock()
+
+	names, err := List()
+	if err != nil {
+		return err
+	}
+
+	// Load the default profile (or start fresh if it doesn't exist yet).
+	defPath := Path(Default)
+	def, err := lockfile.Load(defPath)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	seen := make(map[string]bool, len(def.Entries))
+	for _, e := range def.Entries {
+		seen[e.Name] = true
+	}
+
+	// Merge every non-default profile into default, then delete the file.
+	for _, name := range names {
+		if name == Default {
+			continue
+		}
+		path := Path(name)
+		f, err := lockfile.Load(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		for _, e := range f.Entries {
+			if !seen[e.Name] {
+				def.Entries = append(def.Entries, e)
+				seen[e.Name] = true
+			}
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+
+	if err := lockfile.Save(defPath, def); err != nil {
+		return err
+	}
+
+	// Reset the active profile.
+	return Use(Default)
+}
+
 // Active returns the currently active profile name (Default if Use has
 // never been called).
 func Active() string {
