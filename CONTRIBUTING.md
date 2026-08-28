@@ -109,3 +109,25 @@ Match the surrounding code. Comments explain *why* a thing is done, and
 in particular record the real-world failure a piece of defensive code
 exists to prevent — that context is the most valuable thing in this
 codebase and the easiest to lose.
+
+## The install harness
+
+`TestInstallHarness` installs real packages, checks what landed, removes
+them and checks for residue. It is the only test that exercises the
+install pipeline end to end, and it is opt-in because it downloads from
+real upstream URLs:
+
+```powershell
+$env:GOOP_HARNESS = '1'
+go test ./internal/installer/ -run Harness -v -timeout 30m
+```
+
+The default set is chosen for *shape* coverage — one package per
+extraction or hook mechanism — rather than popularity. Adding a package
+whose shape nothing covers yet is the most useful contribution to it;
+`$env:GOOP_HARNESS_APPS = 'name1,name2'` tries a set without editing
+code.
+
+It runs weekly in CI. A failure there may mean an upstream release was
+retired rather than that goop broke — read the log before assuming a
+regression.

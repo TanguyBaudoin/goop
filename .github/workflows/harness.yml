@@ -1,0 +1,48 @@
+name: Install harness
+
+# Deliberately not on every push. This installs real packages from real
+# URLs, so it is slower than the rest of CI and can fail for reasons that
+# have nothing to do with goop -- an upstream release being retired, a
+# host being briefly unreachable. Treating that as a broken build would
+# teach everyone to ignore a red mark.
+#
+# A failure here means "look at it", not "the last commit broke
+# something". Check the step log before assuming a regression.
+on:
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: 'Comma-separated packages to install (blank = the default shape-coverage set)'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  harness:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        shell: pwsh
+        run: .\scripts\build.ps1
+
+      # The test isolates GOOP_HOME, APPDATA and LOCALAPPDATA into a
+      # temporary directory itself, so nothing here touches the runner's
+      # real profile -- which matters because shortcuts otherwise go to
+      # the real Start Menu.
+      - name: Install, verify, uninstall
+        shell: pwsh
+        env:
+          GOOP_HARNESS: '1'
+          GOOP_HARNESS_APPS: ${{ github.event.inputs.apps }}
+        run: go test ./internal/installer/ -run Harness -v -timeout 40m

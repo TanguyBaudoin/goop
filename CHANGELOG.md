@@ -13,7 +13,21 @@ built from — quote it in bug reports.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- An install harness. `TestInstallHarness` installs real packages into an
+  isolated root, checks that `current` resolves and that every declared
+  `bin` produced a shim whose sidecar names a target that exists, then
+  uninstalls and checks for residue. Opt-in (`GOOP_HARNESS=1`), and run
+  weekly in CI rather than on every push since it downloads from real
+  upstream URLs.
+
+  This closes what REQUIREMENTS.md called the largest verification gap:
+  until now the corpus was verified to *decode*, and installing was
+  checked only by hand. The set is chosen for **shape** coverage — one
+  package per extraction and hook mechanism — rather than the
+  specification's "200 most-used manifests", because popularity says
+  nothing about which code path a package exercises. Current result: 8/8.
 
 ## [0.1.0] — 2026-08-28
 

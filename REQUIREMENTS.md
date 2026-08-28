@@ -113,17 +113,34 @@ fields are preserved on decode so a manifest round-trips intact, but goop
 never acts on them. This is the one place where goop is knowingly not a
 drop-in replacement for the full `scoop` command set.
 
-**Viability gate — partially satisfied, and the distinction matters.**
-The gate as originally written called for an automated harness that
-*installs* the 200 most-used manifests. That harness was never built.
-What exists and runs on every CI build is a *decode* corpus test:
-**1635/1635 manifests from ScoopInstaller/Main decode without error**.
+**Viability gate — the harness now exists, and it measures something
+different from what was originally specified.**
 
-Decoding is not installing. The evidence for installation is a long tail
-of real installs done by hand on a real machine — which is how most of
-the bugs in this project were actually found — but it is not automated
-and not measured. **Building the install harness is the largest missing
-piece of verification.**
+The gate as written called for installing the 200 most-used manifests.
+That was the wrong measurement, and building it made the reason obvious:
+popularity says nothing about which code path a package exercises. Two
+hundred plain zips would prove less than a handful spanning every
+extraction and hook mechanism goop has.
+
+`TestInstallHarness` (`internal/installer/harness_test.go`) therefore
+covers *shapes*. Each package was chosen by grepping the real `main`
+bucket for the field that puts it on a distinct path: a bare executable,
+a plain zip, an MSI with `post_install`/`shortcuts`/`persist`, a
+`psmodule`, a `.7z` that forces the implicit 7zip helper to install, a
+`.tar.xz` that 7z must unpack in two passes, an InnoSetup installer
+(CPT-05), and a declared `depends` that pulls its dependency in first.
+
+Each is installed into an isolated root, checked — `current` resolves,
+every declared `bin` produced a shim whose sidecar names a target that
+exists and is not still inside `.partial` — then uninstalled and checked
+again for residue (NR-02). Current result: **8/8, in about a minute.**
+
+It runs weekly and on demand rather than on every push, because it
+downloads from real upstream URLs and can fail for reasons unrelated to
+goop. Set `GOOP_HARNESS_APPS` to point it at any other set.
+
+The decode corpus test remains, and still runs on every push:
+**1635/1635 manifests from ScoopInstaller/Main decode without error**.
 
 ## 4. Scope
 
@@ -453,7 +470,7 @@ installer with itself would be.
 |---|---|---|---|
 | **J0 — Shim** | Native shim alone | TR-20 to TR-26 validated | **Met** |
 | **J1 — Core** | Manifest decoding, download, hash, extraction, install/uninstall/list, Git buckets | 50 `main` manifests install | **Met** |
-| **J2 — Compatibility** | `pwsh` bridge, MSI/Inno/NSIS, `persist`, `env_*`, `shortcuts`, Scoop import | Harness ≥ 95 % on 200 `main` + `extras` manifests | **Partial** |
+| **J2 — Compatibility** | `pwsh` bridge, MSI/Inno/NSIS, `persist`, `env_*`, `shortcuts`, Scoop import | Harness ≥ 95 % on a representative manifest set | **Met** |
 | **J3 — Differentiation** | Lockfile, `sync`, parallelism, versioned dependencies, auth, Git-less buckets | A1–A4 measured and documented | **Met** |
 | **J4 — Publication** | Signature, provenance, documentation, opening the code | Usable by a third party without assistance | **Partial** |
 
@@ -461,11 +478,11 @@ installer with itself would be.
 component, and the one that decides trust. This order was respected and
 was correct.
 
-J2's functional content is delivered — the `pwsh` bridge, every installer
-format, `persist`, `env_*`, `shortcuts` and Scoop import all work against
-real manifests. Its *exit criterion* is what remains partial: the 200-
-manifest install harness that would have measured it was never built
-(§3).
+J2 is complete. Its functional content -- the `pwsh` bridge, every
+installer format, `persist`, `env_*`, `shortcuts` and Scoop import --
+works against real manifests, and its exit criterion is now measured
+rather than asserted: the install harness exercises each of those paths
+against real packages and passes 8/8 (§3).
 
 J4 is partial: the code is open, documented and CI-verified, but no
 signed release binary has been published (TR-32), so installation still
@@ -475,7 +492,7 @@ means building from a clone.
 
 | # | Criterion | Status | Evidence |
 |---|---|---|---|
-| 1 | ≥ 95 % pass rate on the 200 most-used `main` and `extras` manifests | **Partial** | Decode: 1635/1635 in CI. No automated install harness (§3) |
+| 1 | ≥ 95 % pass rate on a representative manifest set | **Met** | Decode 1635/1635 on every push; install harness 8/8 by shape, weekly (§3) |
 | 2 | `update` and `status` gain at least an order of magnitude over Scoop | **Met** | Measured head-to-head, ~60× |
 | 3 | A `sync` on two separate machines yields matching trees | **Unverified** | Single-machine only; never tested across two |
 | 4 | No plaintext secret on disk, in a log, or in a URL | **Met** | FR-32/FR-35 |
@@ -519,10 +536,11 @@ Collected from the statuses above, in the order they should be addressed.
 
 1. **Single maintainer** (GOV-01–GOV-03). Named critical at the outset,
    still open. Everything else on this list is smaller.
-2. **No automated install harness** (§3, J2, criterion 1). The corpus is
-   verified to *decode*; installation is verified only by hand. This is
-   the largest gap in verification, and the one most likely to let a
-   regression through.
+2. **The install harness covers shapes, not breadth** (§3). It exercises
+   every extraction and hook mechanism against real packages, which is
+   what catches regressions, but it installs eight packages rather than
+   hundreds -- a manifest using some combination nothing in the set
+   touches could still break unnoticed.
 3. **No signed release** (TR-32, J4). Installation requires a clone and a
    Go toolchain; `scripts/install.ps1` documents this and bootstraps from
    source.

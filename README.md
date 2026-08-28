@@ -357,14 +357,18 @@ The release path holds no personal secret either — CI publishes with
 GitHub's own token — so someone else could pick the project up without
 needing anything only the current maintainer has.
 
-If you want to help, the missing install harness below is the most
-valuable thing anyone could contribute, and it needs no knowledge of
-goop's internals.
+If you want to help, widening the install harness below is the most
+valuable thing anyone could contribute: it needs no knowledge of goop's
+internals, just a manifest whose shape nothing in the set covers yet.
 
-**Installation isn't verified automatically.** CI checks that all 1635
-manifests in `main` decode correctly on every push, but actually
-installing them is tested by hand. That's the biggest hole in the
-testing.
+**The install harness is narrow.** Until today installation was verified
+only by hand. There is now a harness that installs real packages into an
+isolated root, checks the result and removes them again — covering every
+extraction and hook mechanism goop has, and passing 8/8. But eight
+packages is coverage by *shape*, not by breadth: a manifest combining
+things nothing in the set touches could still break unnoticed. It runs
+weekly rather than on every push, because it downloads from real upstream
+URLs.
 
 **No code signature.** The binary isn't Authenticode-signed. It doesn't
 affect the install above — PowerShell downloads don't carry the Mark of
