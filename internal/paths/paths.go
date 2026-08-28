@@ -308,6 +308,7 @@ func ProxyFor(host string) string {
 		if entry == "*" {
 			return ""
 		}
+		entry = strings.TrimPrefix(entry, "*.")
 		entry = strings.TrimPrefix(entry, ".")
 		if host == entry || strings.HasSuffix(host, "."+entry) {
 			return ""
