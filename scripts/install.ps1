@@ -60,10 +60,11 @@ if (-not (Get-Command go -CommandType Application -ErrorAction SilentlyContinue)
 
 Write-Step "Building goop from $repoRoot ..."
 # Delegated to build.ps1 rather than repeating `go build` here: that
-# script owns the shim-then-goop ordering and the -ldflags version
-# stamp, and a second copy of it would silently drift -- an install done
-# this way would report a different `goop version` than one built the
-# normal way.
+# script owns the shim-then-goop ordering and the -ldflags version stamp,
+# and a second copy of it would silently drift. Dropping this step
+# entirely broke the install outright -- the Copy-Item below reads
+# build\goop.exe, which is gitignored and therefore absent from a fresh
+# clone, so the script failed with PathNotFound.
 & (Join-Path $PSScriptRoot 'build.ps1')
 if ($LASTEXITCODE -ne 0) { throw "build failed" }
 Write-Ok "built $repoRoot\build\goop.exe"
