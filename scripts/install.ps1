@@ -105,29 +105,31 @@ if ($FromSource) {
     $stagedExe = Join-Path $repoRoot 'build\goop.exe'
     Write-Ok "built $stagedExe"
 } else {
-    if (-not $Version) {
-        Write-Step "Resolving the latest release ..."
-        try {
-            $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -UseBasicParsing
-        } catch {
-            throw "Could not reach the GitHub releases API for $Repo. Pass -Version to name a release explicitly, or -FromSource to build from a checkout. Underlying error: $($_.Exception.Message)"
-        }
-        $Version = $latest.tag_name
+    # No call to api.github.com. Its unauthenticated limit is 60 requests
+    # per hour *per IP*, which a corporate NAT shares across everyone
+    # behind it -- the install would fail with an opaque 403 through no
+    # fault of the person running it. GitHub's /releases/latest/download/
+    # redirect serves the same asset and is not rate limited.
+    if ($Version) {
+        $tag = if ($Version -match '^v') { $Version } else { "v$Version" }
+        $base = "https://github.com/$Repo/releases/download/$tag"
+        $label = $tag
+    } else {
+        $base = "https://github.com/$Repo/releases/latest/download"
+        $label = 'the latest release'
     }
-    $tag = if ($Version -match '^v') { $Version } else { "v$Version" }
 
     $tempDir = Join-Path ([IO.Path]::GetTempPath()) ("goop-install-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
     New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
     $stagedExe = Join-Path $tempDir 'goop.exe'
     $checksums = Join-Path $tempDir 'checksums.txt'
-    $base = "https://github.com/$Repo/releases/download/$tag"
 
-    Write-Step "Downloading goop $tag ..."
+    Write-Step "Downloading goop ($label) ..."
     try {
         Invoke-WebRequest -Uri "$base/goop.exe" -OutFile $stagedExe -UseBasicParsing
     } catch {
         Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
-        throw "Could not download $base/goop.exe -- check that release $tag exists, or use -FromSource. Underlying error: $($_.Exception.Message)"
+        throw "Could not download $base/goop.exe -- check that the release exists, or use -FromSource. Underlying error: $($_.Exception.Message)"
     }
 
     # The checksum travels in the same release, so it guards against a
@@ -141,7 +143,7 @@ if ($FromSource) {
         Invoke-WebRequest -Uri "$base/checksums.txt" -OutFile $checksums -UseBasicParsing
     } catch {
         $haveChecksums = $false
-        Write-Warning "No checksums.txt in release $tag; skipping checksum verification."
+        Write-Warning "No checksums.txt published alongside this release; skipping checksum verification."
     }
     if ($haveChecksums) {
         $expected = ((Get-Content $checksums -Raw).Trim() -split '\s+')[0].ToLower()
