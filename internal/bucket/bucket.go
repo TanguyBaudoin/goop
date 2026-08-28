@@ -20,6 +20,37 @@ import (
 	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
+// gitOnPath reports whether git is available on PATH.
+func gitOnPath() bool {
+	_, err := exec.LookPath("git")
+	return err == nil
+}
+
+// githubArchiveURL converts a GitHub git remote URL to a codeload archive
+// URL that can be downloaded without git. Returns "" if the URL is not
+// a recognizable GitHub URL.
+//
+// Handles:
+//
+//	https://github.com/org/repo
+//	https://github.com/org/repo.git
+func githubArchiveURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	if u.Hostname() != "github.com" {
+		return ""
+	}
+	path := strings.TrimSuffix(u.Path, ".git")
+	path = strings.TrimSuffix(path, "/")
+	parts := strings.SplitN(path, "/", 4)
+	if len(parts) < 3 || parts[0] != "" || parts[1] == "" || parts[2] == "" {
+		return ""
+	}
+	return fmt.Sprintf("https://codeload.github.com/%s/%s/zip/HEAD", parts[1], parts[2])
+}
+
 // gitProxyArgs returns extra "git -c http.proxy=..." args for a git
 // invocation targeting rawURL, drawn from goop's own persisted proxy
 // (`goop config set-proxy`) -- only when neither HTTP_PROXY nor
@@ -138,6 +169,12 @@ func archiveExt(rawURL string) string {
 // is delegated to, consistent with how Scoop itself depends on it) or
 // archive (FR-21, no Git required); pass "" to auto-detect from url's
 // extension, defaulting to git.
+//
+// When kind is git (or auto-detected as git) and git is not on PATH, Add
+// falls back to archive mode if the URL is a recognizable GitHub URL
+// (githubArchiveURL) -- this lets a user bootstrap goop without having
+// git installed first. The bucket is stored as KindArchive so future
+// updates also use the archive path.
 func Add(name, url string, kind Kind) error {
 	if name == "" {
 		return fmt.Errorf("bucket name must not be empty")
@@ -147,6 +184,13 @@ func Add(name, url string, kind Kind) error {
 			kind = KindArchive
 		} else {
 			kind = KindGit
+		}
+	}
+
+	if kind == KindGit && !gitOnPath() {
+		if archiveURL := githubArchiveURL(url); archiveURL != "" {
+			url = archiveURL
+			kind = KindArchive
 		}
 	}
 
@@ -383,30 +427,59 @@ func Update(name string) error {
 	dir := paths.Bucket(name)
 	switch entry.kind() {
 	case KindGit:
+		if !gitOnPath() {
+			if archiveURL := githubArchiveURL(entry.URL); archiveURL != "" {
+				entry.Kind = KindArchive
+				entry.URL = archiveURL
+				if err := saveConfig(cfg); err != nil {
+					return err
+				}
+				return updateArchive(entry.URL, dir)
+			}
+			return fmt.Errorf("git not found on PATH; cannot update bucket %q (and %q is not a GitHub URL that can fall back to archive mode)", name, entry.URL)
+		}
 		if _, err := os.Stat(dir); err != nil {
 			return fmt.Errorf("bucket %q not found: %w", name, err)
 		}
-		args := append([]string{"-C", dir}, gitProxyArgs(entry.URL)...)
-		args = append(args, "pull", "--ff-only")
-		cmd := exec.Command("git", args...)
+		// Buckets are disposable upstream mirrors -- fetch + hard-reset
+		// avoids the "untracked working tree files would be overwritten"
+		// error that plain pull --ff-only chokes on whenever upstream
+		// adds files whose paths happen to exist unstaged in the clone.
+		fetchArgs := append([]string{"-C", dir}, gitProxyArgs(entry.URL)...)
+		fetchArgs = append(fetchArgs, "fetch")
+		cmd := exec.Command("git", fetchArgs...)
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("git pull %s: %w\n%s", name, err, out)
+			return fmt.Errorf("git fetch %s: %w\n%s", name, err, out)
+		}
+		cmd = exec.Command("git", "-C", dir, "reset", "--hard", "FETCH_HEAD")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git reset %s: %w\n%s", name, err, out)
+		}
+		cmd = exec.Command("git", "-C", dir, "clean", "-fd")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git clean %s: %w\n%s", name, err, out)
 		}
 		return nil
 	case KindArchive:
-		staging := dir + ".update"
-		os.RemoveAll(staging)
-		if err := fetchArchiveBucket(entry.URL, staging); err != nil {
-			return err
-		}
-		if err := os.RemoveAll(dir); err != nil {
-			os.RemoveAll(staging)
-			return err
-		}
-		return os.Rename(staging, dir)
+		return updateArchive(entry.URL, dir)
 	default:
 		return fmt.Errorf("bucket %q has unknown kind %q", name, entry.Kind)
 	}
+}
+
+// updateArchive replaces dir's contents with a fresh download+extract of
+// url (a Git-less archive bucket).
+func updateArchive(url, dir string) error {
+	staging := dir + ".update"
+	os.RemoveAll(staging)
+	if err := fetchArchiveBucket(url, staging); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		os.RemoveAll(staging)
+		return err
+	}
+	return os.Rename(staging, dir)
 }
 
 // UpdateAll updates every configured bucket, returning the first error

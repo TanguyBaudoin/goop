@@ -54,6 +54,31 @@ func TestHoistSingleSubdir_HoistsWrapper(t *testing.T) {
 	}
 }
 
+func TestGithubArchiveURL(t *testing.T) {
+	tests := map[string]string{
+		"https://github.com/ScoopInstaller/Main":     "https://codeload.github.com/ScoopInstaller/Main/zip/HEAD",
+		"https://github.com/ScoopInstaller/Main.git": "https://codeload.github.com/ScoopInstaller/Main/zip/HEAD",
+		"https://github.com/ScoopInstaller/Main/":    "https://codeload.github.com/ScoopInstaller/Main/zip/HEAD",
+		"https://github.com/org/repo.git":            "https://codeload.github.com/org/repo/zip/HEAD",
+		"https://gitlab.com/org/repo":                "",
+		"https://github.com":                         "",
+		"https://github.com/org":                     "",
+		"not-a-url":                                  "",
+		"https://codeload.github.com/ScoopInstaller/Main/zip/refs/heads/master": "", // already an archive URL
+	}
+	for url, want := range tests {
+		got := githubArchiveURL(url)
+		if got != want {
+			t.Errorf("githubArchiveURL(%q) = %q, want %q", url, got, want)
+		}
+	}
+}
+
+func TestGitOnPath(t *testing.T) {
+	// Just verify it doesn't panic and returns bool.
+	gitOnPath()
+}
+
 func TestHoistSingleSubdir_LeavesFlatLayoutAlone(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "bucket"), 0o755); err != nil {
