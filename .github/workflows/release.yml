@@ -73,22 +73,24 @@ jobs:
           "$hash  goop.exe" | Out-File -FilePath .\build\checksums.txt -Encoding ascii
           Get-Content .\build\checksums.txt
 
-      # gh ships on the runner; using it avoids taking a third-party
-      # action into the supply chain of a binary other people will run.
+      # Notes are built as an indented array rather than a here-string or
+      # a multi-line --notes argument: inside a `run: |` block every line
+      # must stay indented, and a line starting at column 0 silently ends
+      # the block and makes the whole workflow file unparseable.
       - name: Publish
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create '${{ steps.version.outputs.tag }}' `
-            .\build\goop.exe `
-            .\build\checksums.txt `
-            --title 'goop ${{ steps.version.outputs.version }}' `
-            --notes 'Install:
-
-```powershell
-irm https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/install.ps1 | iex
-```
-
-See CHANGELOG.md for what changed. `goop version` reports the build you are running.' `
-            --verify-tag
+          $lines = @(
+            'Install:',
+            '',
+            '```powershell',
+            'irm https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/install.ps1 | iex',
+            '```',
+            '',
+            'Needs no Go toolchain and no git. See CHANGELOG.md for what changed;',
+            '`goop version` reports the build you are running.'
+          )
+          Set-Content -Path release-notes.md -Value $lines -Encoding utf8
+          gh release create '${{ steps.version.outputs.tag }}' build\goop.exe build\checksums.txt --title 'goop ${{ steps.version.outputs.version }}' --notes-file release-notes.md --verify-tag

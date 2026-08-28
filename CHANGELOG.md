@@ -13,94 +13,29 @@ built from — quote it in bug reports.
 
 ## [Unreleased]
 
-### Added
+Nothing yet.
 
-- Releases. Pushing a `v*` tag builds, tests, verifies the version stamp
-  and publishes `goop.exe` plus a SHA256 checksum as a GitHub Release.
-- `scripts/install.ps1` now **downloads** that release instead of
-  building, so installing needs neither a Go toolchain nor git:
+## [0.1.0] — 2026-08-28
 
-  ```powershell
-  irm https://raw.githubusercontent.com/TanguyBaudoin/goop/main/scripts/install.ps1 | iex
-  ```
+First release. goop installs and manages Windows applications from Scoop
+buckets, reading the same manifests without requiring Scoop itself.
 
-  Options are read from the environment as well as from parameters, since
-  a script piped into `iex` has nothing to bind them to. `-FromSource`
-  keeps the old build-from-checkout behaviour for contributors.
-- `goop uninstall --all` removes every installed package in one command.
-- `goop uninstall --all` now requires confirmation. Interactively it asks
-  for the word `uninstall-all` to be typed, after listing what will go;
-  non-interactively — piped or scripted stdin — it **refuses outright**
-  rather than assuming consent. There is no override flag: a `--yes` that
-  scripts may pass is a `--yes` an automated caller may pass. An automated
-  caller reaching for `uninstall --all --force` now fails closed instead
-  of quietly wiping the machine.
-- `goop profile reset` merges every profile into `default`, deletes the
-  named profiles, and makes `default` active again.
-- Buckets can be added and updated **without git**: when git is absent
-  and the URL is a GitHub one, goop falls back to downloading a codeload
-  archive. This removes a bootstrap circularity — goop can install git,
-  but previously only from a bucket it could not add without git.
-- `file://` sources, so a bucket or manifest can point at a local path or
-  a network share. Hash verification is unchanged, so a local source is
-  trusted no further than a remote one.
-- `scripts/uninstall.ps1` reverses `install.ps1`: removes the PATH
-  entries and `GOOP_HOME`, optionally uninstalls managed packages first,
-  and deletes the tree. Confirms before acting; `-DryRun`,
-  `-PreserveApps` and `-SkipSelfdestruct` are available.
-- Downloads retry transient failures with exponential backoff and jitter,
-  and the per-download timeout is now an hour rather than 15 minutes.
+### Install
 
-### Changed
+```powershell
+irm https://raw.githubusercontent.com/TanguyBaudoin/goop/main/scripts/install.ps1 | iex
+```
 
-- The git-less bucket fallback no longer rewrites the stored URL. A
-  bucket added on a machine without git is still recorded as a git bucket
-  with its canonical URL, and only the *fetch* falls back to a codeload
-  archive. Previously the codeload URL was persisted, which locked the
-  bucket into archive mode permanently: installing git later left it
-  re-downloading the whole bucket on every refresh, with the original URL
-  already overwritten. Once git is available, the next update re-clones
-  once and is incremental from then on — measured on the main bucket,
-  ~1.4s refreshes instead of ~5s.
-- Git buckets update with `fetch` + `reset --hard` + `clean -fd` instead
-  of `pull --ff-only`. A bucket is a disposable mirror, and `pull`
-  refused outright whenever upstream added a file whose path already
-  existed untracked in the clone.
-- Extraction helpers are no longer recorded as functional dependencies.
-  A manifest that declares 7zip under `depends` *and* needs it to unpack
-  its own archive was making `goop uninstall 7zip` cascade into every
-  such package.
-- `goop lock` warns when an entry pins a machine-local `file://` source
-  (a drive-letter path), which cannot resolve on another machine. UNC
-  paths do resolve elsewhere and are not flagged.
-
-### Fixed
-
-- `NO_PROXY` entries written as `*.example.com` — the form curl and pip
-  document — matched nothing, so the proxy was used for hosts that
-  should have bypassed it.
-- `file://` URLs in the standard UNC form (`file://server/share/x.zip`)
-  resolved to a *relative* path, and percent-encoding was not decoded, so
-  a share named `Program Files` failed. Both were the forms that mattered
-  most: UNC is the only spelling that travels between machines.
-- Downloads retried every non-200 status, so a 404 — a dead URL in a
-  manifest, the most common failure there is — took three attempts and
-  seconds of backoff before reporting. Only 5xx, 429, 408 and
-  transport-level errors are retried now.
-- A retried range chunk counted its already-reported bytes twice, so a
-  chunked download that retried could show more than 100% progress.
-
-## [0.1.0] — unreleased
-
-First release. goop installs and manages Windows applications from
-Scoop buckets, reading the same manifests without requiring Scoop
-itself.
+No Go toolchain and no git needed. The script downloads the release
+binary, verifies its SHA256, lays out the tree, and puts goop on `PATH`.
+`scripts/uninstall.ps1` reverses it, and `-FromSource` builds from a
+checkout instead for contributors.
 
 ### Added
 
 **Packages** — `install`, `uninstall`, `update`, `list`, `info`,
 `search`, `download`, `depends`, `hold`/`unhold`, `cleanup`, `reset`,
-`cache`.
+`cache`, `version`.
 
 Installs are atomic: content is staged in a `<version>.partial`
 directory and manifest hooks run against it before a single rename
@@ -108,6 +43,12 @@ commits the result, so a failed install leaves no trace. `hold` pins a
 package against `update`; `cleanup` removes superseded versions;
 `reset` rebuilds shims, shortcuts and environment entries for an
 existing install.
+
+`uninstall --all` removes everything in one command, and asks for the
+word `uninstall-all` to be typed first. Non-interactively — piped or
+scripted stdin — it refuses outright rather than assuming consent, with
+no override flag: a `--yes` that scripts may pass is a `--yes` an
+automated caller may pass.
 
 **Scoop manifest compatibility** — a PowerShell prelude reimplements
 the Scoop helper surface manifests call into (the `Expand-*` archive
@@ -117,21 +58,36 @@ Zip and tar.gz are extracted natively in Go; other formats shell out to
 7zip, innounp or dark, which are resolved as implicit dependencies and
 installed automatically rather than assumed present on PATH.
 
-**Buckets** — `bucket add/list/remove`, with per-bucket priority so a
-name found in a preferred bucket wins over the same name in `main`.
+**Buckets** — `bucket add/list/remove/priority`, with per-bucket
+priority so a name found in a preferred bucket wins over the same name
+in `main`. Git is used when present and is not required: a GitHub bucket
+is downloaded as a codeload archive when git is absent, which removes a
+bootstrap circularity — goop can install git, but only from a bucket. The
+fallback is a property of the machine, not of the bucket: the canonical
+URL is kept, so installing git later restores incremental updates by
+itself.
 
 **Shims** — commands are dispatched through hardlinks to a shim binary
 paired with a text sidecar naming the real target.
 
 **Profiles** — `profile`, `why`. Profiles group applications, and
 membership acts as a safety net: removing something another profile
-still needs requires `--force`.
+still needs requires `--force`. `profile reset` merges everything back
+into `default`.
 
 **Reproducibility** — `lock`, `sync`, `status`, `import`. Lockfiles pin
 version, URL and hash; `goop lock --file <path>` keeps one inside a
 project repository rather than under the goop home. `sync` installs a
 pinned entry straight from the frozen fields without consulting the
-bucket, and `status` exits 3 on drift, for use in CI.
+bucket, and `status` exits 3 on drift, for use in CI. `lock` warns when
+an entry pins a machine-local `file://` source, which cannot resolve
+elsewhere.
+
+**Offline use** — the download cache is keyed by content hash and
+consulted before any fetch, so a cache directory copied from a connected
+machine lets `sync` resolve everything with no network. Buckets and
+manifests may also point at a local path or network share with a
+`file://` URL.
 
 **Dependencies** — declared `depends` entries are resolved recursively
 at install time, and uninstalling a package cascades to the packages
@@ -143,11 +99,22 @@ not remove everything that was once unpacked with it.
 first-class packages.
 
 **Integrity and auth** — downloads are verified against the manifest
-hash; `verify` checks minisign signatures; `auth` stores credentials
-for private buckets in the Windows credential store.
+hash and retry transient failures with exponential backoff, leaving a
+definitive answer such as a 404 to be reported at once. `verify` checks
+minisign signatures; `auth` stores credentials for private buckets in
+the Windows credential store, keyed by host and never written into a
+manifest.
 
-**Other** — `config`, `migrate`, `completion` (PowerShell and bash,
-with `--install` to register itself), and `version`.
+**Other** — `config` (install root, proxy, `NO_PROXY`, cache limit,
+bucket staleness), `migrate`, and `completion` for PowerShell and bash
+with `--install` to register itself.
+
+### Known gaps
+
+See [REQUIREMENTS.md](REQUIREMENTS.md) for every requirement with its
+status. The largest: installation is verified by hand rather than by an
+automated harness, the released binary is not Authenticode-signed so
+SmartScreen may warn on first run, and goop has a single maintainer.
 
 [Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.1.0
