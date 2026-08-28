@@ -423,7 +423,8 @@ sentence it replaces. Revisit if release automation is ever added.
 
 ## 10. Decisions — resolved
 
-The specification originally left six decisions open. All are settled.
+The specification originally left six decisions open; a seventh was
+settled during implementation. All are recorded here.
 
 | # | Question | Resolution |
 |---|---|---|
@@ -433,6 +434,18 @@ The specification originally left six decisions open. All are settled.
 | D4 | Install directory | **Own root** (`~/goop`, overridable) plus an import path from an existing Scoop install (CPT-07) |
 | D5 | Signature mechanism | **minisign** — no PKI to operate, no third-party service, verifiable offline |
 | D6 | License and timing of opening | **MIT**, opened 2026-08-23 |
+| D7 | Should goop update itself automatically? | **No.** Explicit `goop self-update` only, with at most a passive notice that a newer version exists |
+
+**D7's reasoning, since it will look like an omission otherwise.** goop
+exists to freeze toolchains. A binary that updates itself between two
+`goop sync` runs changes the engine interpreting your lockfiles without
+being asked, possibly mid-build — which is precisely what `goop hold`
+prevents for packages. Applying a weaker rule to goop itself would be
+incoherent. Scoop behaves the same way and never updates unasked.
+Verifying the new binary's minisign signature with the key embedded in
+the already-trusted one is the point at which `scripts/sign.ps1` finally
+earns its place; that check is not circular the way verifying an
+installer with itself would be.
 
 ## 11. Milestones
 
