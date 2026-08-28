@@ -51,9 +51,22 @@ It replaces the binary with the current release and leaves everything
 else alone — your packages, buckets, profiles and `PATH` are untouched,
 and it won't duplicate anything. `goop version` tells you what you're on.
 
-There is no `goop self-update` yet. Windows won't let a running program
-overwrite itself, so it needs a little care, and re-running the installer
-does the job in the meantime.
+Or let goop do it:
+
+```powershell
+goop self-update
+```
+
+It checks the published checksum first — a few dozen bytes — so being
+already current costs nothing. Otherwise it downloads the new binary,
+verifies its hash, **runs it once to confirm it works**, and only then
+swaps it in. If anything fails at that point the old binary is put back.
+
+It is never automatic, and won't be. goop exists to freeze toolchains; a
+binary that replaced itself between two `goop sync` runs would change the
+engine reading your lockfile without being asked. It also refuses to go
+backwards — a locally built binary is not an older release — unless you
+pass `--force`.
 
 Note that `goop update` updates your *packages*, not goop.
 

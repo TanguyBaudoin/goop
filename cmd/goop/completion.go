@@ -22,7 +22,7 @@ import (
 var topLevelCommands = []string{
 	"install", "uninstall", "update", "list", "info", "search", "depends", "cleanup", "download", "reset", "hold", "unhold", "cache", "bucket", "maven-repo",
 	"import", "migrate", "lock", "sync", "status", "profile", "why", "auth", "verify",
-	"config", "completion", "version", "help",
+	"config", "completion", "self-update", "version", "help",
 }
 
 const completionUsage = "usage: goop completion <powershell|bash> [--install]"

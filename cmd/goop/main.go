@@ -180,6 +180,8 @@ func run(args []string) int {
 		return cmdMigrate(args[1:])
 	case "completion":
 		return cmdCompletion(args[1:])
+	case "self-update":
+		return cmdSelfUpdate(args[1:])
 	case "version", "--version":
 		return cmdVersion(args[1:])
 	case "-h", "--help", "help":
@@ -319,6 +321,8 @@ func printUsage() {
 
 	section("about")
 	cmd("goop version", "goop's own version, commit and build date -- quote it in bug reports")
+	cmd("goop self-update [--force]", "replace goop itself with the current release; never automatic (D7)")
+	cmd("", "refuses to go backwards unless --force -- a local build is not an older release")
 	fmt.Fprintln(os.Stderr)
 
 	fmt.Fprintf(os.Stderr, "%s 0 ok, 1 error, 2 usage, 3 drift detected ('goop status')\n", ui.Bold("exit codes:"))

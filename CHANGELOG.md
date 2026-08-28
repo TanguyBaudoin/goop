@@ -15,6 +15,19 @@ built from — quote it in bug reports.
 
 ### Added
 
+- `goop self-update` replaces goop itself with the current release. It
+  compares the published checksum against the running binary first, so
+  being already current costs a few dozen bytes rather than a download;
+  otherwise it verifies the hash, **runs the new binary once to confirm
+  it works**, and only then swaps it in, restoring the old one if the
+  swap fails. Windows will not let a running image be overwritten but
+  will let it be renamed, so the outgoing binary is moved aside and
+  deleted on a later run.
+
+  Never automatic, per D7 — and it refuses to go backwards unless
+  `--force` is given, since a locally built binary differs from the
+  published build of the same version and would otherwise be silently
+  replaced by an older release.
 - An install harness. `TestInstallHarness` installs real packages into an
   isolated root, checks that `current` resolves and that every declared
   `bin` produced a shim whose sidecar names a target that exists, then
