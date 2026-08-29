@@ -48,3 +48,18 @@ func ReadSecret(prompt string) (string, error) {
 	}
 	return strings.TrimRight(line, "\r\n"), nil
 }
+
+// Ask prints a prompt and reads one line, echoed normally. Returns "" on
+// a bare Enter, which callers use to mean "take the default".
+//
+// Callers must check IsTerminal first and decide what to do without a
+// console: reading from a pipe here would silently consume whatever the
+// caller's stdin happened to hold.
+func Ask(prompt string) (string, error) {
+	fmt.Fprint(os.Stderr, prompt)
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil && line == "" {
+		return "", err
+	}
+	return strings.TrimSpace(line), nil
+}

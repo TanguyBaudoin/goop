@@ -128,7 +128,10 @@ func loadLegacyDefault() (Definition, error) {
 	return decodeDefinition(Default, data)
 }
 
-// Save writes a profile, sorted and deduplicated.
+// Save writes a profile, deduplicated, in the order entries were added.
+//
+// Not sorted: a profile of alternatives ranks its members, and the first
+// is the default. Insertion order is stable anyway, so diffs stay clean.
 func Save(d Definition) error {
 	if d.Name == "" {
 		d.Name = Default
@@ -141,7 +144,6 @@ func Save(d Definition) error {
 			apps = append(apps, a)
 		}
 	}
-	sort.Strings(apps)
 	d.Apps = apps
 
 	if err := os.MkdirAll(profilesDir(), 0o755); err != nil {
@@ -319,4 +321,21 @@ func Use(name string) error {
 		return err
 	}
 	return os.WriteFile(activeFilePath(), data, 0o644)
+}
+
+// RemoveLocal drops appName from profileName only when that profile is
+// defined on this machine. A profile that comes from the index is left
+// alone.
+//
+// This is what uninstall uses. Editing an index-defined profile forks it
+// locally, and an uninstall must not do that as a side effect: removing
+// one package would silently detach the machine from the team's whole
+// baseline, and the profile would then be an empty local file shadowing
+// it. Deliberately editing such a profile is still possible through
+// `goop profile remove`, which says what it is doing.
+func RemoveLocal(profileName, appName string) error {
+	if _, err := os.Stat(Path(profileName)); err != nil {
+		return nil // index-defined or absent: nothing local to edit
+	}
+	return Remove(profileName, appName)
 }

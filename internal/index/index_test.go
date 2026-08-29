@@ -39,10 +39,11 @@ func TestUpdate_FromFileURL(t *testing.T) {
 		t.Fatalf("got %d profiles, want 2", len(d.Profiles))
 	}
 
-	// Apps come back sorted, so two machines print the same thing.
+	// Published order is preserved: for a profile of alternatives the
+	// first entry is the default, and sorting would pick a different one.
 	apps, ok := Apps("baseline.tool")
-	if !ok || len(apps) != 2 || apps[0] != "git" || apps[1] != "srecord" {
-		t.Errorf("Apps = %v, %v; want [git srecord], true", apps, ok)
+	if !ok || len(apps) != 2 || apps[0] != "srecord" || apps[1] != "git" {
+		t.Errorf("Apps = %v, %v; want [srecord git] as published, true", apps, ok)
 	}
 	if got := Names(); len(got) != 2 || got[0] != "baseline.tool" {
 		t.Errorf("Names = %v", got)

@@ -349,7 +349,7 @@ func uninstallRec(appName string, force bool, cascadeStack []string) error {
 
 	if containing, err := profile.ContainingProfiles(appName); err == nil {
 		for _, p := range containing {
-			if err := profile.Remove(p, appName); err != nil {
+			if err := profile.RemoveLocal(p, appName); err != nil {
 				Logf("%s: profile cleanup (%s): %v", appName, p, err)
 			}
 		}

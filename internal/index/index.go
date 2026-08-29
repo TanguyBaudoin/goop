@@ -79,16 +79,20 @@ func Update() (Document, error) {
 	return d, nil
 }
 
-// Apps returns the packages the index lists for a profile.
+// Apps returns the packages the index lists for a profile, in the order
+// they were published.
+//
+// Order is deliberately preserved rather than sorted. For most profiles
+// it carries no meaning, but for a profile of alternatives -- `ide`, say
+// -- the first entry is the default, and sorting it would silently pick
+// whichever editor happens to come first alphabetically.
 func Apps(profileName string) ([]string, bool) {
 	d := Load()
 	apps, ok := d.Profiles[profileName]
 	if !ok {
 		return nil, false
 	}
-	out := append([]string(nil), apps...)
-	sort.Strings(out)
-	return out, true
+	return append([]string(nil), apps...), true
 }
 
 // Names returns every profile the index defines, sorted.

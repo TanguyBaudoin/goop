@@ -129,6 +129,8 @@ func run(args []string) int {
 	// Keep topLevelCommands (completion.go) in sync with the cases below --
 	// it's what `goop <tab>` offers.
 	switch args[0] {
+	case "bootstrap":
+		return cmdBootstrap(args[1:])
 	case "install":
 		return cmdInstall(args[1:])
 	case "uninstall":
@@ -210,6 +212,11 @@ func printUsage() {
 		}
 		fmt.Fprintf(os.Stderr, "  %-46s %s\n", usage, ui.Dim(desc))
 	}
+
+	section("projects")
+	cmd("goop bootstrap [--non-interactive]", "bring this machine in line with the repo's goop.json: profiles, then its lockfile")
+	cmd("", "idempotent -- same command on day one and after a git pull; won't reinstall what you removed")
+	fmt.Fprintln(os.Stderr)
 
 	section("install & remove")
 	cmd("goop install <spec>... [--no-update]", "spec: [bucket/]name[@constraint], e.g. jq, extras/mpv, jq@1.8.2")

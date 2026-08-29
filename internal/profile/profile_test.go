@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/TanguyBaudoin/goop/internal/index"
 	"github.com/TanguyBaudoin/goop/internal/lockfile"
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // withTempRoot points paths.Root() at an isolated temp directory for the
@@ -289,5 +291,49 @@ func TestLoad_RecoversDefaultFromRootLockfile(t *testing.T) {
 	after, err := os.ReadFile(rootLock)
 	if err != nil || string(after) != body {
 		t.Error("reading the default profile modified the root lockfile")
+	}
+}
+
+// Uninstalling a package cleans up its profile membership. For a profile
+// that comes from the index that must be a no-op: editing it would write
+// a local copy that shadows the team's definition, so removing one tool
+// would silently detach the machine from the whole baseline.
+func TestRemoveLocal_LeavesIndexProfilesAlone(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("GOOP_HOME", root)
+	t.Setenv("LOCALAPPDATA", filepath.Join(root, "localappdata"))
+
+	src := filepath.Join(t.TempDir(), "index.json")
+	if err := os.WriteFile(src, []byte(`{"profiles":{"baseline.tool":["jq","git"]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := paths.SetConfiguredIndex("file:///" + filepath.ToSlash(src)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := index.Update(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RemoveLocal("baseline.tool", "jq"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(Path("baseline.tool")); !os.IsNotExist(err) {
+		t.Fatal("uninstalling forked the index profile into a local file")
+	}
+	d, err := Load("baseline.tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Source != "index" || len(d.Apps) != 2 {
+		t.Errorf("profile is now %v from %q, want both apps from the index", d.Apps, d.Source)
+	}
+
+	// An explicit `goop profile remove` is a deliberate fork and still works.
+	if err := Remove("baseline.tool", "jq"); err != nil {
+		t.Fatal(err)
+	}
+	d, _ = Load("baseline.tool")
+	if d.Source != "local" || len(d.Apps) != 1 {
+		t.Errorf("explicit removal should fork locally, got %v from %q", d.Apps, d.Source)
 	}
 }

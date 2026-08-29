@@ -15,6 +15,30 @@ built from — quote it in bug reports.
 
 ### Added
 
+- **`goop bootstrap`** — one idempotent command for day one and for every
+  `git pull` after it. A repository declares what it needs in
+  `goop.json`:
+
+  ```json
+  {"lockfile": "goop.lock.json", "profiles": ["baseline.tool", "ide"]}
+  ```
+
+  The repository states its *intent*; the index says what those profiles
+  contain. bootstrap refreshes the index, applies the profiles, then
+  syncs the lockfile — the toolchain last, because it is what the build
+  actually needs. It finds `goop.json` by walking up, so running it from
+  a subdirectory works.
+
+  It remembers what it installed, so a package you removed on purpose is
+  not quietly put back on the next run — it says it is leaving it out
+  instead. Running it twice in a row does nothing the second time.
+
+  `ide` is the only profile treated as a choice rather than a set, and
+  the only place goop asks a question. The first entry is the default,
+  the answer is remembered — including a refusal — and
+  `--non-interactive` takes the default without asking, so CI never sees
+  a prompt.
+
 - **A profile index.** What profiles *contain* can now be published by a
   team rather than defined on each machine or committed into every
   repository — so adding a tool to `baseline.tool` does not mean a commit
@@ -82,10 +106,11 @@ built from — quote it in bug reports.
   grouping of names was stored as, and indistinguishable from, a pinned
   auditable artifact.
 
-  A profile is now a plain sorted list of package names, with no
-  versions, hashes or payload: `{"name": "baseline.tool", "apps": [...]}`.
-  It is allowed to drift. Reproducibility is guaranteed by the lockfile
-  alone.
+  A profile is now a plain list of package names, with no versions,
+  hashes or payload: `{"name": "baseline.tool", "apps": [...]}`, kept in
+  the order they were declared — for a profile of alternatives such as
+  `ide`, the first entry is the default. It is allowed to drift;
+  reproducibility is guaranteed by the lockfile alone.
 
   `goop lock`, `goop sync` and `goop status` therefore take a lockfile
   **path** only. `--as <profile>` and `--profile <name>` are gone;
