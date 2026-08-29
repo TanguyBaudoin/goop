@@ -47,6 +47,28 @@ built from — quote it in bug reports.
   trusting it; and `Status` checks the record state and every shim target
   on disk, reporting *why* in a new column.
 
+### Changed
+
+- **Breaking: a profile is no longer a lockfile.** They shared a format,
+  and the `default` profile literally *was* `goop.lock.json` — so a soft
+  grouping of names was stored as, and indistinguishable from, a pinned
+  auditable artifact.
+
+  A profile is now a plain sorted list of package names, with no
+  versions, hashes or payload: `{"name": "baseline.tool", "apps": [...]}`.
+  It is allowed to drift. Reproducibility is guaranteed by the lockfile
+  alone.
+
+  `goop lock`, `goop sync` and `goop status` therefore take a lockfile
+  **path** only. `--as <profile>` and `--profile <name>` are gone;
+  `--file <path>` remains and defaults to the root lockfile.
+
+  Nothing is lost on upgrade. Old profile files are still read, and the
+  default profile's membership is recovered from the root lockfile —
+  which is left untouched, being a perfectly good lockfile that simply no
+  longer doubles as a profile. The new shape is written the next time a
+  profile changes.
+
 ## [0.2.0] — 2026-08-29
 
 ### Added

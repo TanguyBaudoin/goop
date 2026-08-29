@@ -10,7 +10,6 @@ import (
 	"github.com/TanguyBaudoin/goop/internal/lockfile"
 	"github.com/TanguyBaudoin/goop/internal/manifest"
 	"github.com/TanguyBaudoin/goop/internal/paths"
-	"github.com/TanguyBaudoin/goop/internal/profile"
 )
 
 // Lock snapshots every currently-installed app into profileName's
@@ -20,10 +19,7 @@ import (
 // "<root>/goop.lock.json", if none has ever been activated -- unchanged
 // from before profiles existed). Apps whose record can't be read (broken
 // `current`) are skipped -- there's nothing trustworthy to lock.
-func Lock(profileName string) (lockfile.File, error) {
-	if profileName == "" {
-		profileName = profile.Active()
-	}
+func Lock(path string) (lockfile.File, error) {
 	records, err := List()
 	if err != nil {
 		return lockfile.File{}, err
@@ -46,7 +42,7 @@ func Lock(profileName string) (lockfile.File, error) {
 			ExtractTos:   r.ExtractTos,
 		})
 	}
-	if err := lockfile.Save(profile.Path(profileName), f); err != nil {
+	if err := lockfile.Save(path, f); err != nil {
 		return lockfile.File{}, err
 	}
 	return f, nil
@@ -82,14 +78,10 @@ type SyncChange struct {
 // current, leaving the previously current version's files in place
 // (consistent with how any other version switch works). Entries sync
 // concurrently (A1), bounded the same way InstallAll is.
-func Sync(profileName string) (SyncResult, error) {
-	if profileName == "" {
-		profileName = profile.Active()
-	}
-	path := profile.Path(profileName)
+func Sync(path string) (SyncResult, error) {
 	f, err := lockfile.Load(path)
 	if err != nil {
-		return SyncResult{}, fmt.Errorf("load profile %q (%s): %w", profileName, path, err)
+		return SyncResult{}, fmt.Errorf("load lockfile %s: %w", path, err)
 	}
 
 	concurrency := defaultConcurrency()
@@ -219,14 +211,10 @@ type DriftEntry struct {
 // Status compares profileName's membership file against installed state
 // without changing anything (FR-12), for CI drift detection.
 // profileName defaults to the active profile when empty, same as Lock.
-func Status(profileName string) ([]DriftEntry, error) {
-	if profileName == "" {
-		profileName = profile.Active()
-	}
-	path := profile.Path(profileName)
+func Status(path string) ([]DriftEntry, error) {
 	f, err := lockfile.Load(path)
 	if err != nil {
-		return nil, fmt.Errorf("load profile %q (%s): %w", profileName, path, err)
+		return nil, fmt.Errorf("load lockfile %s: %w", path, err)
 	}
 
 	var drift []DriftEntry

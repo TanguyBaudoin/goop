@@ -268,11 +268,11 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr)
 
 	section("reproducibility")
-	cmd("goop lock [--as <profile>|--file <path>]", "snapshot installed apps (FR-10)")
+	cmd("goop lock [--file <path>]", "freeze installed packages with versions and hashes (FR-10)")
 	cmd("", "--file writes the lockfile wherever you want -- keep it in the project repo it pins, like Cargo.lock")
-	cmd("goop sync [--profile <name>|--file <path>]", "install exactly that state, no bucket resolution (FR-11)")
+	cmd("goop sync [--file <path>]", "install exactly that state, no bucket resolution (FR-11)")
 	cmd("", "a pinned entry installs from its frozen version/URL/hash -- how you go back to an older baseline")
-	cmd("goop status [--profile <name>|--file <path>]", "report drift; exit 3 if any (FR-12)")
+	cmd("goop status [--file <path>]", "report drift; exit 3 if any, with the reason (FR-12)")
 	fmt.Fprintln(os.Stderr)
 
 	section("auth")
@@ -370,40 +370,32 @@ func cmdVerify(args []string) int {
 	return 0
 }
 
-// parseProfileFlag parses an optional "<flag> <value>" pair from args
-// (e.g. "--profile projectA"), returning ("", true) if args is empty
-// (the common, no-flag case) or (value, true) if any of flags matched.
-// The value may be a profile name or an explicit lockfile path --
-// profile.Path treats the two apart, so callers don't have to.
-func parseProfileFlag(args []string, flags ...string) (string, bool) {
+// parseFileFlag parses an optional "--file <path>" from args, falling
+// back to the root lockfile. A lockfile is always a path now: profiles
+// no longer double as one, which is what let a soft grouping be mistaken
+// for a pinned artifact.
+func parseFileFlag(args []string) (string, bool) {
 	if len(args) == 0 {
-		return "", true
+		return lockfile.Path(), true
 	}
-	if len(args) == 2 {
-		for _, f := range flags {
-			if args[0] == f {
-				return args[1], true
-			}
-		}
+	if len(args) == 2 && args[0] == "--file" {
+		return args[1], true
 	}
 	return "", false
 }
 
 func cmdLock(args []string) int {
-	profileName, ok := parseProfileFlag(args, "--as", "--file")
+	path, ok := parseFileFlag(args)
 	if !ok {
-		fmt.Fprintln(os.Stderr, "usage: goop lock [--as <profile>|--file <path>]")
+		fmt.Fprintln(os.Stderr, "usage: goop lock [--file <path>]")
 		return 2
 	}
-	if profileName == "" {
-		profileName = profile.Active()
-	}
-	f, err := installer.Lock(profileName)
+	f, err := installer.Lock(path)
 	if err != nil {
 		ui.Fail("lock: %v", err)
 		return 1
 	}
-	ui.Ok("locked %d app(s) to profile %q (%s)", len(f.Entries), profileName, profile.Path(profileName))
+	ui.Ok("locked %d package(s) to %s", len(f.Entries), path)
 	warnMachineLocalSources(f)
 	return 0
 }
@@ -441,15 +433,12 @@ func warnMachineLocalSources(f lockfile.File) {
 }
 
 func cmdSync(args []string) int {
-	profileName, ok := parseProfileFlag(args, "--profile", "--file")
+	path, ok := parseFileFlag(args)
 	if !ok {
-		fmt.Fprintln(os.Stderr, "usage: goop sync [--profile <name>|--file <path>]")
+		fmt.Fprintln(os.Stderr, "usage: goop sync [--file <path>]")
 		return 2
 	}
-	if profileName == "" {
-		profileName = profile.Active()
-	}
-	res, err := installer.Sync(profileName)
+	res, err := installer.Sync(path)
 	if err != nil {
 		ui.Fail("sync: %v", err)
 		return 1
@@ -482,21 +471,18 @@ func cmdSync(args []string) int {
 }
 
 func cmdStatus(args []string) int {
-	profileName, ok := parseProfileFlag(args, "--profile", "--file")
+	path, ok := parseFileFlag(args)
 	if !ok {
-		fmt.Fprintln(os.Stderr, "usage: goop status [--profile <name>|--file <path>]")
+		fmt.Fprintln(os.Stderr, "usage: goop status [--file <path>]")
 		return 2
 	}
-	if profileName == "" {
-		profileName = profile.Active()
-	}
-	drift, err := installer.Status(profileName)
+	drift, err := installer.Status(path)
 	if err != nil {
 		ui.Fail("status: %v", err)
 		return 1
 	}
 	if len(drift) == 0 {
-		fmt.Printf("%s in sync with profile %q (%s)\n", ui.Green(ui.CheckMark), profileName, profile.Path(profileName))
+		fmt.Printf("%s in sync with %s\n", ui.Green(ui.CheckMark), path)
 		return 0
 	}
 	rows := make([][]string, len(drift))
@@ -555,12 +541,12 @@ func cmdProfile(args []string) int {
 		active := profile.Active()
 		rows := make([][]string, len(names))
 		for i, name := range names {
-			f, _ := lockfile.Load(profile.Path(name))
+			d, _ := profile.Load(name)
 			marker := ""
 			if name == active {
 				marker = ui.Green("*")
 			}
-			rows[i] = []string{marker, name, fmt.Sprintf("%d", len(f.Entries))}
+			rows[i] = []string{marker, name, fmt.Sprintf("%d", len(d.Apps))}
 		}
 		fmt.Print(ui.Table([]string{"", "NAME", "MEMBERS"}, rows))
 		return 0
@@ -1491,14 +1477,14 @@ func roots(members []string, byName map[string]installer.Record) []string {
 
 // profileMembers returns p's installed member apps, sorted.
 func profileMembers(p string, byName map[string]installer.Record) []string {
-	f, err := lockfile.Load(profile.Path(p))
+	d, err := profile.Load(p)
 	if err != nil {
 		return nil
 	}
 	var out []string
-	for _, e := range f.Entries {
-		if _, ok := byName[e.Name]; ok {
-			out = append(out, e.Name)
+	for _, name := range d.Apps {
+		if _, ok := byName[name]; ok {
+			out = append(out, name)
 		}
 	}
 	sort.Strings(out)

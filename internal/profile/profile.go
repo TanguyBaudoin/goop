@@ -1,68 +1,148 @@
-// Package profile groups installed apps into user-curated, named
-// profiles ("core", "projectA", "projectB", ...) -- a membership label,
-// not an isolated environment: installation itself stays global/shared
-// exactly as always (one apps/<name>/ tree regardless of how many
-// profiles reference it). Reuses internal/lockfile's existing File/Entry
-// shape unchanged (Load/Save were already parameterized by path, not
-// hardcoded to the root lockfile) -- a profile file is structurally
-// identical to goop.lock.json, just stored under a name.
+// Package profile groups packages into named, user-curated sets
+// ("core", "baseline.tool", "ide", ...).
+//
+// A profile is a membership label and nothing more: a list of names, no
+// versions, no hashes, no payload. That is the whole point of the
+// separation from lockfiles. A profile is allowed to drift -- the team
+// adds a tool, everyone picks it up -- while reproducibility is
+// guaranteed by the lockfile alone, and by snapshots taken from it.
+//
+// Profiles used to be stored *as* lockfiles, with the default profile
+// literally being goop.lock.json. That made the two indistinguishable on
+// disk and let a soft grouping masquerade as a pinned, auditable
+// artifact. `goop migrate` converts the old shape.
+//
+// Installation itself stays global and shared: one apps/<name>/ tree
+// regardless of how many profiles reference it.
 package profile
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 
-	"github.com/TanguyBaudoin/goop/internal/lockfile"
 	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
-// Default is the profile installs land in when no other profile has
-// been activated via Use. It maps to the classic root-level
-// goop.lock.json (Path), so existing lockfile-based workflows are
-// unaffected by profiles existing at all.
+// Default is the profile installs land in when none has been activated.
 const Default = "default"
 
-// Path returns where profile's membership file lives. Default maps to
-// lockfile.Path() ("<root>/goop.lock.json") for zero migration pain;
-// named profiles live at "<root>/profiles/<name>.json".
-//
-// A name that is really a file path ("./chipA.lock.json",
-// "D:\src\proj\goop.lock.json") is used verbatim instead. A lockfile
-// pins a *project's* toolchain, so like package-lock.json or Cargo.lock
-// it belongs in that project's repo, versioned by the repo's own
-// history -- not buried in goop's install root where it can't be
-// committed alongside the code it pins. IsFilePath's rules make this
-// unambiguous against real profile names, which are bare identifiers.
-func Path(name string) string {
-	if name == "" || name == Default {
-		return lockfile.Path()
-	}
-	if IsFilePath(name) {
-		return name
-	}
-	return filepath.Join(paths.Root(), "profiles", name+".json")
+// Definition is a profile as stored: a name and the packages it groups.
+// Apps are kept sorted so two machines that added the same tools produce
+// the same file, and a diff shows only what changed.
+type Definition struct {
+	Name string   `json:"name"`
+	Apps []string `json:"apps"`
 }
 
-// IsFilePath reports whether name should be treated as an explicit
-// lockfile path rather than a profile name: profile names are bare
-// identifiers ("default", "projectA"), so anything carrying a
-// separator, a drive letter, or a .json suffix is a path.
-func IsFilePath(name string) bool {
-	return strings.ContainsAny(name, `/\`) ||
-		filepath.IsAbs(name) ||
-		strings.HasSuffix(strings.ToLower(name), ".json")
+// Path is where profile's definition lives. Every profile, default
+// included, is a file under profiles/ -- unlike before, where default
+// aliased the root lockfile.
+func Path(name string) string {
+	if name == "" {
+		name = Default
+	}
+	return filepath.Join(profilesDir(), name+".json")
 }
 
 func profilesDir() string {
 	return filepath.Join(paths.Root(), "profiles")
 }
 
-// List returns every profile name with a file on disk, Default always
-// included even if goop.lock.json doesn't exist yet.
+// Load reads a profile. A profile with no file yet is an empty one, not
+// an error: membership is created by the first `add` or install.
+//
+// Legacy shapes are read, never rewritten. Profiles used to be stored as
+// lockfiles, so an old file carries `entries` instead of `apps`; and the
+// default profile used to be the root lockfile itself. Both are accepted
+// here and converted on the next Save, so upgrading goop does not lose
+// anyone's membership and does not silently rewrite files either.
+func Load(name string) (Definition, error) {
+	if name == "" {
+		name = Default
+	}
+	data, err := os.ReadFile(Path(name))
+	if os.IsNotExist(err) {
+		if name == Default {
+			return loadLegacyDefault()
+		}
+		return Definition{Name: name}, nil
+	}
+	if err != nil {
+		return Definition{}, fmt.Errorf("read profile %q: %w", name, err)
+	}
+	return decodeDefinition(name, data)
+}
+
+// legacyFile is the old on-disk shape: a lockfile, whose entries carried
+// versions and hashes a profile has no business holding.
+type legacyFile struct {
+	Entries []struct {
+		Name string `json:"name"`
+	} `json:"entries"`
+}
+
+func decodeDefinition(name string, data []byte) (Definition, error) {
+	var d Definition
+	if err := json.Unmarshal(data, &d); err != nil {
+		return Definition{}, fmt.Errorf("parse profile %q (%s): %w", name, Path(name), err)
+	}
+	if len(d.Apps) == 0 {
+		var legacy legacyFile
+		if err := json.Unmarshal(data, &legacy); err == nil && len(legacy.Entries) > 0 {
+			for _, e := range legacy.Entries {
+				d.Apps = append(d.Apps, e.Name)
+			}
+		}
+	}
+	d.Name = name // the filename is authoritative
+	return d, nil
+}
+
+// loadLegacyDefault recovers default membership from the root lockfile,
+// which is where it lived before profiles and lockfiles were separated.
+// The lockfile is left alone: it is still a perfectly good lockfile, it
+// just no longer doubles as a profile.
+func loadLegacyDefault() (Definition, error) {
+	data, err := os.ReadFile(filepath.Join(paths.Root(), "goop.lock.json"))
+	if err != nil {
+		return Definition{Name: Default}, nil
+	}
+	return decodeDefinition(Default, data)
+}
+
+// Save writes a profile, sorted and deduplicated.
+func Save(d Definition) error {
+	if d.Name == "" {
+		d.Name = Default
+	}
+	seen := make(map[string]bool, len(d.Apps))
+	apps := make([]string, 0, len(d.Apps))
+	for _, a := range d.Apps {
+		if a = strings.TrimSpace(a); a != "" && !seen[a] {
+			seen[a] = true
+			apps = append(apps, a)
+		}
+	}
+	sort.Strings(apps)
+	d.Apps = apps
+
+	if err := os.MkdirAll(profilesDir(), 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(d, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(Path(d.Name), append(data, '\n'), 0o644)
+}
+
+// List returns every profile with a file on disk, Default always
+// included even before anything has been added to it.
 func List() ([]string, error) {
 	names := map[string]bool{Default: true}
 
@@ -85,59 +165,52 @@ func List() ([]string, error) {
 	return out, nil
 }
 
-// profileMu guards read-modify-write of any profile file against
-// concurrent installs (A1) registering into the same active profile at
-// once.
+// profileMu guards read-modify-write of a profile against concurrent
+// installs (A1) registering into the same active profile at once.
 var profileMu sync.Mutex
 
-// Add registers appName as a member of profileName, idempotent (a no-op
-// if already present). Creates the profile file if it doesn't exist yet.
+// Add registers appName as a member of profileName. Idempotent.
 func Add(profileName, appName string) error {
 	profileMu.Lock()
 	defer profileMu.Unlock()
 
-	path := Path(profileName)
-	f, err := lockfile.Load(path)
-	if err != nil && !os.IsNotExist(err) {
+	d, err := Load(profileName)
+	if err != nil {
 		return err
 	}
-	if _, ok := f.Find(appName); ok {
-		return nil
+	for _, a := range d.Apps {
+		if a == appName {
+			return nil
+		}
 	}
-	f.Entries = append(f.Entries, lockfile.Entry{Name: appName})
-	return lockfile.Save(path, f)
+	d.Apps = append(d.Apps, appName)
+	return Save(d)
 }
 
-// Remove removes appName from profileName's membership, idempotent (a
-// no-op if the profile or the entry doesn't exist).
+// Remove drops appName from profileName. Idempotent.
 func Remove(profileName, appName string) error {
 	profileMu.Lock()
 	defer profileMu.Unlock()
 
-	path := Path(profileName)
-	f, err := lockfile.Load(path)
+	d, err := Load(profileName)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
 		return err
 	}
-	idx := -1
-	for i, e := range f.Entries {
-		if e.Name == appName {
-			idx = i
-			break
+	out := d.Apps[:0]
+	for _, a := range d.Apps {
+		if a != appName {
+			out = append(out, a)
 		}
 	}
-	if idx == -1 {
+	if len(out) == len(d.Apps) {
 		return nil
 	}
-	f.Entries = append(f.Entries[:idx], f.Entries[idx+1:]...)
-	return lockfile.Save(path, f)
+	d.Apps = out
+	return Save(d)
 }
 
-// ContainingProfiles returns every profile that currently lists appName
-// as a member -- the "why" query.
+// ContainingProfiles returns every profile listing appName -- the "why"
+// query.
 func ContainingProfiles(appName string) ([]string, error) {
 	names, err := List()
 	if err != nil {
@@ -145,12 +218,15 @@ func ContainingProfiles(appName string) ([]string, error) {
 	}
 	var containing []string
 	for _, name := range names {
-		f, err := lockfile.Load(Path(name))
+		d, err := Load(name)
 		if err != nil {
-			continue // no file yet (or unreadable) -- treat as an empty profile
+			continue // unreadable -- treat as empty rather than failing the query
 		}
-		if _, ok := f.Find(appName); ok {
-			containing = append(containing, name)
+		for _, a := range d.Apps {
+			if a == appName {
+				containing = append(containing, name)
+				break
+			}
 		}
 	}
 	return containing, nil
@@ -164,9 +240,8 @@ type activeState struct {
 	Active string `json:"active,omitempty"`
 }
 
-// Reset consolidates every profile's members into the Default profile,
-// removes all non-default profile files, and resets the active profile
-// back to Default.
+// Reset merges every profile's members into Default, deletes the named
+// profiles, and makes Default active again.
 func Reset() error {
 	profileMu.Lock()
 	defer profileMu.Unlock()
@@ -175,67 +250,43 @@ func Reset() error {
 	if err != nil {
 		return err
 	}
-
-	// Load the default profile (or start fresh if it doesn't exist yet).
-	defPath := Path(Default)
-	def, err := lockfile.Load(defPath)
-	if err != nil && !os.IsNotExist(err) {
+	def, err := Load(Default)
+	if err != nil {
 		return err
 	}
-	seen := make(map[string]bool, len(def.Entries))
-	for _, e := range def.Entries {
-		seen[e.Name] = true
-	}
-
-	// Merge every non-default profile into default, then delete the file.
 	for _, name := range names {
 		if name == Default {
 			continue
 		}
-		path := Path(name)
-		f, err := lockfile.Load(path)
+		d, err := Load(name)
 		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
 			return err
 		}
-		for _, e := range f.Entries {
-			if !seen[e.Name] {
-				def.Entries = append(def.Entries, e)
-				seen[e.Name] = true
-			}
-		}
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		def.Apps = append(def.Apps, d.Apps...) // Save dedupes and sorts
+		if err := os.Remove(Path(name)); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}
-
-	if err := lockfile.Save(defPath, def); err != nil {
+	if err := Save(def); err != nil {
 		return err
 	}
-
-	// Reset the active profile.
 	return Use(Default)
 }
 
-// Active returns the currently active profile name (Default if Use has
-// never been called).
+// Active returns the currently active profile name.
 func Active() string {
 	data, err := os.ReadFile(activeFilePath())
 	if err != nil {
 		return Default
 	}
 	var s activeState
-	if json.Unmarshal(data, &s) != nil || s.Active == "" {
+	if err := json.Unmarshal(data, &s); err != nil || s.Active == "" {
 		return Default
 	}
 	return s.Active
 }
 
-// Use persists name as the active profile -- subsequent
-// `goop install`/`goop uninstall` calls register/unregister against it
-// until changed again (conda-activate-style).
+// Use makes name the active profile.
 func Use(name string) error {
 	if name == "" {
 		name = Default

@@ -1,6 +1,8 @@
 package profile
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/TanguyBaudoin/goop/internal/lockfile"
@@ -16,10 +18,19 @@ func withTempRoot(t *testing.T) {
 	t.Setenv("GOOP_HOME", t.TempDir())
 }
 
-func TestPath_DefaultMapsToLockfilePath(t *testing.T) {
+// The default profile used to *be* goop.lock.json, which made a soft
+// grouping indistinguishable from a pinned artifact. It is now a profile
+// file like any other, and an empty name still means default.
+func TestPath_DefaultIsAProfileFile(t *testing.T) {
 	withTempRoot(t)
 	if got, want := Path(Default), Path(""); got != want {
 		t.Errorf("Path(Default) = %q, Path(\"\") = %q, want equal", got, want)
+	}
+	if filepath.Base(Path(Default)) != "default.json" {
+		t.Errorf("Path(Default) = %q, want it to end in default.json", Path(Default))
+	}
+	if Path(Default) == lockfile.Path() {
+		t.Error("the default profile must no longer alias the root lockfile")
 	}
 }
 
@@ -213,17 +224,70 @@ func TestReset_NoDuplicateMembers(t *testing.T) {
 	}
 
 	// jq should appear only once in the default profile.
-	f, err := lockfile.Load(Path(Default))
+	d, err := Load(Default)
 	if err != nil {
 		t.Fatal(err)
 	}
 	count := 0
-	for _, e := range f.Entries {
-		if e.Name == "jq" {
+	for _, a := range d.Apps {
+		if a == "jq" {
 			count++
 		}
 	}
 	if count != 1 {
 		t.Fatalf("default profile has %d entries for jq, want 1", count)
+	}
+}
+
+// Profiles used to be stored as lockfiles. Upgrading goop must not lose
+// anyone's membership, so the old shape is still read -- and converted
+// only when something writes the profile back.
+func TestLoad_ReadsLegacyLockfileShape(t *testing.T) {
+	withTempRoot(t)
+
+	legacy := `{"entries":[{"name":"gcc","version":"13.2","hashes":["abc"]},{"name":"cmake","version":"3.29"}]}`
+	if err := os.MkdirAll(profilesDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(Path("projectA"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	d, err := Load("projectA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Apps) != 2 || d.Apps[0] != "gcc" || d.Apps[1] != "cmake" {
+		t.Fatalf("got %v, want [gcc cmake]", d.Apps)
+	}
+}
+
+// The default profile used to be the root lockfile. Its membership has to
+// survive the separation, without the lockfile itself being touched --
+// it is still a valid lockfile.
+func TestLoad_RecoversDefaultFromRootLockfile(t *testing.T) {
+	withTempRoot(t)
+
+	rootLock := lockfile.Path()
+	if err := os.MkdirAll(filepath.Dir(rootLock), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"entries":[{"name":"jq","version":"1.8.2"}]}`
+	if err := os.WriteFile(rootLock, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	d, err := Load(Default)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Apps) != 1 || d.Apps[0] != "jq" {
+		t.Fatalf("got %v, want [jq]", d.Apps)
+	}
+
+	// And the lockfile must be exactly as it was.
+	after, err := os.ReadFile(rootLock)
+	if err != nil || string(after) != body {
+		t.Error("reading the default profile modified the root lockfile")
 	}
 }
