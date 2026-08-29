@@ -239,6 +239,8 @@ func printUsage() {
 
 	section("buckets")
 	cmd("goop bucket add <name> <url> [git|archive]", "archive needs no Git (FR-21); auto-detected from the URL")
+	cmd("", "--from <url-or-path> seeds the content from elsewhere (a local zip, an internal mirror)")
+	cmd("", "while still recording the bucket under <url> -- for offline installs")
 	cmd("goop bucket remove <name>", "drops the config entry and deletes the local clone; already-installed apps are unaffected")
 	cmd("goop bucket priority <name> <n>", "n=1 is searched first, so it wins when several buckets carry the same app")
 	cmd("goop bucket list", "")
@@ -1733,23 +1735,43 @@ func cmdBucket(args []string) int {
 	}
 	switch args[0] {
 	case "add":
-		if len(args) < 3 || len(args) > 4 {
-			fmt.Fprintln(os.Stderr, "usage: goop bucket add <name> <url> [git|archive]")
+		// --from seeds the content from somewhere else -- a zip on a USB
+		// stick for an offline install, or an internal mirror -- while the
+		// bucket is still recorded under the URL it actually is.
+		var from string
+		rest := args[1:]
+		for i := 0; i < len(rest); i++ {
+			if rest[i] == "--from" {
+				if i+1 >= len(rest) {
+					fmt.Fprintln(os.Stderr, "bucket add: --from needs a URL or path")
+					return 2
+				}
+				from = rest[i+1]
+				rest = append(append([]string{}, rest[:i]...), rest[i+2:]...)
+				i--
+			}
+		}
+		if len(rest) < 2 || len(rest) > 3 {
+			fmt.Fprintln(os.Stderr, "usage: goop bucket add <name> <url> [git|archive] [--from <url-or-path>]")
 			return 2
 		}
 		var kind bucket.Kind
-		if len(args) == 4 {
-			kind = bucket.Kind(args[3])
+		if len(rest) == 3 {
+			kind = bucket.Kind(rest[2])
 			if kind != bucket.KindGit && kind != bucket.KindArchive {
-				ui.Fail("bucket add: kind must be \"git\" or \"archive\", got %q", args[3])
+				ui.Fail("bucket add: kind must be \"git\" or \"archive\", got %q", rest[2])
 				return 2
 			}
 		}
-		if err := bucket.Add(args[1], args[2], kind); err != nil {
+		if err := bucket.AddFrom(rest[0], rest[1], from, kind); err != nil {
 			ui.Fail("bucket add: %v", err)
 			return 1
 		}
-		ui.Ok("added bucket %s", args[1])
+		if from != "" {
+			ui.Ok("added bucket %s (seeded from %s)", rest[0], from)
+		} else {
+			ui.Ok("added bucket %s", rest[0])
+		}
 		return 0
 	case "remove", "rm":
 		if len(args) != 2 {

@@ -262,6 +262,37 @@ URL. Use the UNC form (`file://server/share/x.zip`) if the lockfile will
 travel — a drive-letter path only exists on the machine that wrote it,
 and `goop lock` warns you when it sees one.
 
+
+### Installing with no network at all
+
+Release pages carry a `goop-<version>-offline.zip` — about 16 MB — with
+goop, its checksum, the installer, and a snapshot of the main bucket.
+Unpack it anywhere on the target machine and run:
+
+```powershell
+.\install.ps1
+```
+
+It finds `goop.exe` beside itself, verifies its checksum, and seeds the
+bucket from the bundled archive. No network, and no git.
+
+The bucket is still recorded under its real URL, so once that machine
+has a connection `goop bucket update` fetches from GitHub normally —
+being installed offline does not strand it there.
+
+Packages themselves still have to come from somewhere: copy a populated
+cache across as above, or point manifests at a share.
+
+Same idea for a permanent internal mirror, without the bundle:
+
+```powershell
+goop bucket add main https://github.com/ScoopInstaller/Main --from file://fileserver/goop/main.zip
+```
+
+`--from` says where to fetch the content; the URL says what the bucket
+is. Keeping them separate is what lets the mirror be an implementation
+detail rather than something baked into your configuration.
+
 ## Configuration
 
 ```powershell

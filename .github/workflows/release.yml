@@ -80,6 +80,56 @@ jobs:
       # a multi-line --notes argument: inside a `run: |` block every line
       # must stay indented, and a line starting at column 0 silently ends
       # the block and makes the whole workflow file unparseable.
+      # The offline bundle: everything needed to install goop on a machine
+      # with no network at all. Without the bucket it would install but be
+      # unable to install anything, which is not much use.
+      - name: Assemble the offline bundle
+        shell: pwsh
+        run: |
+          $stage = 'build\offline'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item build\goop.exe      $stage
+          Copy-Item build\checksums.txt $stage
+          Copy-Item scripts\install.ps1 $stage
+
+          # A codeload snapshot rather than a clone: the bundle must not
+          # assume git exists on the machine that unpacks it.
+          Invoke-WebRequest -UseBasicParsing `
+            -Uri 'https://codeload.github.com/ScoopInstaller/Main/zip/HEAD' `
+            -OutFile (Join-Path $stage 'main-bucket.zip')
+
+          $readme = @(
+            'goop ${{ steps.version.outputs.version }} -- offline bundle',
+            '',
+            'Everything needed to install goop with no network access:',
+            'goop.exe, its checksum, the installer, and a snapshot of the',
+            'main bucket so packages can actually be installed afterwards.',
+            '',
+            'Unpack anywhere, then from that directory run:',
+            '',
+            '    .\install.ps1',
+            '',
+            'It finds goop.exe next to itself, verifies its checksum, and',
+            'seeds the main bucket from main-bucket.zip. The bucket is still',
+            'recorded under its real URL, so `goop bucket update` works',
+            'normally once the machine has a network again.',
+            '',
+            'Options: -GoopDir <path> to install elsewhere, -NoBucket to',
+            'skip the bucket, -DryRun to see what would change.',
+            '',
+            'Packages themselves still need to come from somewhere. Copy a',
+            'populated cache directory across, or point manifests at a',
+            'local share -- see the README section "Offline and restricted',
+            'networks".'
+          )
+          Set-Content -Path (Join-Path $stage 'README.txt') -Value $readme -Encoding utf8
+
+          $zip = "build\goop-${{ steps.version.outputs.version }}-offline.zip"
+          Compress-Archive -Path "$stage\*" -DestinationPath $zip -Force
+          "offline_zip=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Output "bundle: $((Get-Item $zip).Length / 1MB) MB"
+        id: bundle
+
       - name: Publish
         shell: pwsh
         env:
@@ -96,4 +146,4 @@ jobs:
             '`goop version` reports the build you are running.'
           )
           Set-Content -Path release-notes.md -Value $lines -Encoding utf8
-          gh release create '${{ steps.version.outputs.tag }}' build\goop.exe build\checksums.txt --title 'goop ${{ steps.version.outputs.version }}' --notes-file release-notes.md --verify-tag
+          gh release create '${{ steps.version.outputs.tag }}' build\goop.exe build\checksums.txt '${{ steps.bundle.outputs.offline_zip }}' --title 'goop ${{ steps.version.outputs.version }}' --notes-file release-notes.md --verify-tag

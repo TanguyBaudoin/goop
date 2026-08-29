@@ -19,6 +19,17 @@ Nothing yet.
 
 ### Added
 
+- An offline bundle, published with each release as
+  `goop-<version>-offline.zip`: goop, its checksum, the installer and a
+  snapshot of the main bucket, about 16 MB. `install.ps1` detects a
+  `goop.exe` sitting next to it and installs from the bundle instead of
+  downloading — no network and no git.
+- `goop bucket add --from <url-or-path>` seeds a bucket's content from
+  somewhere else while still recording it under its real URL. Where a
+  bucket was fetched from once and what it *is* are different facts:
+  recording a USB stick or an internal mirror as the URL would strand the
+  bucket there permanently, the same way persisting the git-less codeload
+  fallback used to.
 - `goop self-update` replaces goop itself with the current release. It
   compares the published checksum against the running binary first, so
   being already current costs a few dozen bytes rather than a download;

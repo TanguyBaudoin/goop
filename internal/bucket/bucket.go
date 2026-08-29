@@ -206,7 +206,21 @@ func isGitClone(dir string) bool {
 // codeload archive instead, but is still *recorded* as git with its
 // original URL. Nothing about the machine's current tooling is persisted:
 // install git later and the next update becomes incremental by itself.
+// Add fetches url itself. AddFrom is the general form.
 func Add(name, url string, kind Kind) error {
+	return AddFrom(name, url, "", kind)
+}
+
+// AddFrom registers a bucket under url but takes its initial content
+// from `from` when that is non-empty.
+//
+// The two are separate because where a bucket is fetched from once and
+// what it *is* are different facts. An offline install seeds `main` from
+// a zip on a USB stick, and an internal mirror seeds it from a share --
+// but in both cases the bucket is still ScoopInstaller/Main, and
+// recording the seed as its URL would strand it there forever, the same
+// way persisting the git-less codeload fallback used to.
+func AddFrom(name, url, from string, kind Kind) error {
 	if name == "" {
 		return fmt.Errorf("bucket name must not be empty")
 	}
@@ -243,13 +257,26 @@ func Add(name, url string, kind Kind) error {
 		return fmt.Errorf("bucket directory %s already exists", dir)
 	}
 
-	switch kind {
+	// What gets fetched can differ from what gets recorded: `from` seeds
+	// the content, `url` is what the bucket is.
+	source := url
+	sourceKind := kind
+	if from != "" {
+		source = from
+		if archiveExt(from) != "" {
+			sourceKind = KindArchive
+		} else {
+			sourceKind = KindGit
+		}
+	}
+
+	switch sourceKind {
 	case KindGit:
-		if err := fetchGitBucket(url, dir); err != nil {
+		if err := fetchGitBucket(source, dir); err != nil {
 			return err
 		}
 	case KindArchive:
-		if err := fetchArchiveBucket(url, dir); err != nil {
+		if err := fetchArchiveBucket(source, dir); err != nil {
 			return err
 		}
 	default:

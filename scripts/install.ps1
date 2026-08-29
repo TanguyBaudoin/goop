@@ -46,6 +46,7 @@
 param(
     [string]$GoopDir,
     [string]$Version,
+    [string]$From,
     [switch]$FromSource,
     [switch]$NoBucket,
     [switch]$RunAsAdmin,
@@ -65,6 +66,7 @@ if (-not $GoopDir) {
     $GoopDir = if ($env:GOOP_HOME) { $env:GOOP_HOME } else { Join-Path $HOME 'goop' }
 }
 if (-not $Version -and $env:GOOP_VERSION) { $Version = $env:GOOP_VERSION }
+if (-not $From -and $env:GOOP_FROM) { $From = $env:GOOP_FROM }
 if (-not $FromSource -and $env:GOOP_FROM_SOURCE -eq '1') { $FromSource = $true }
 if (-not $NoBucket -and $env:GOOP_NO_BUCKET -eq '1') { $NoBucket = $true }
 
@@ -83,10 +85,46 @@ if ($isElevated -and -not $RunAsAdmin) {
 # ---------------------------------------------------------------------------
 # Obtain goop.exe, either from a release or from a local build.
 # ---------------------------------------------------------------------------
+# An offline bundle is a directory holding goop.exe next to this script,
+# and optionally a bucket archive. Detected rather than declared: if the
+# binary is sitting there, downloading a copy of it would be absurd.
+$bundleDir = $PSScriptRoot
+if ($From) {
+    if (-not (Test-Path $From)) { throw "-From: no such file: $From" }
+    $bundleExe = (Resolve-Path $From).Path
+    $bundleDir = Split-Path -Parent $bundleExe
+} elseif ($bundleDir -and (Test-Path (Join-Path $bundleDir 'goop.exe'))) {
+    $bundleExe = (Join-Path $bundleDir 'goop.exe')
+} else {
+    $bundleExe = $null
+}
+
 $stagedExe = $null
 $tempDir = $null
 
+if ($From -and $FromSource) {
+    throw "-From and -FromSource are mutually exclusive: one installs a binary you already have, the other builds one."
+}
+
 if ($FromSource) {
+    $bundleExe = $null
+}
+
+if ($bundleExe) {
+    Write-Step "Using the bundled goop.exe (offline) ..."
+    # Same checksum check as a download, when the bundle carries one --
+    # a USB stick is not more trustworthy than HTTPS, just closer.
+    $bundleSums = Join-Path $bundleDir 'checksums.txt'
+    if (Test-Path $bundleSums) {
+        $expected = ((Get-Content $bundleSums -Raw).Trim() -split '\s+')[0].ToLower()
+        $actual = (Get-FileHash $bundleExe -Algorithm SHA256).Hash.ToLower()
+        if ($expected -ne $actual) {
+            throw "Checksum mismatch for the bundled goop.exe: expected $expected, got $actual. Nothing was installed."
+        }
+        Write-Ok "checksum verified (sha256 $actual)"
+    }
+    $stagedExe = $bundleExe
+} elseif ($FromSource) {
     if (-not $PSScriptRoot) {
         throw "-FromSource needs the script to run from a checkout; it cannot work when piped into iex. Clone the repository and run scripts\install.ps1 from there."
     }
@@ -212,8 +250,20 @@ if (-not $NoBucket) {
     if (-not $hasMain) {
         # goop falls back to a codeload archive when git is absent, so this
         # works on a machine with no git installed.
-        Write-Step "Adding main bucket ..."
-        & (Join-Path $binDir 'goop.exe') bucket add main https://github.com/ScoopInstaller/Main
+        # An offline bundle can carry the bucket too. --from seeds the
+        # content from the local archive while still recording the bucket
+        # under its canonical URL, so `goop bucket update` works normally
+        # once the machine has a network again.
+        $bundleBucket = if ($bundleDir) { Join-Path $bundleDir 'main-bucket.zip' } else { $null }
+        if ($bundleBucket -and (Test-Path $bundleBucket)) {
+            Write-Step "Adding main bucket from the bundle ..."
+            # [uri].AbsoluteUri produces a correct file:/// URL, including
+            # percent-encoding a path with spaces -- which goop decodes.
+            & (Join-Path $binDir 'goop.exe') bucket add main https://github.com/ScoopInstaller/Main --from ([uri]$bundleBucket).AbsoluteUri
+        } else {
+            Write-Step "Adding main bucket ..."
+            & (Join-Path $binDir 'goop.exe') bucket add main https://github.com/ScoopInstaller/Main
+        }
     }
 }
 
