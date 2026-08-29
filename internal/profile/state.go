@@ -17,12 +17,6 @@ import (
 type State struct {
 	// Applied records, per profile, the packages bootstrap has installed.
 	Applied map[string][]string `json:"applied,omitempty"`
-
-	// IDE is the chosen editor. IDEAsked marks that the question has been
-	// put at all, so declining is remembered rather than re-asked on
-	// every run.
-	IDE      string `json:"ide,omitempty"`
-	IDEAsked bool   `json:"ide_asked,omitempty"`
 }
 
 func statePath() string { return filepath.Join(profilesDir(), "state.json") }

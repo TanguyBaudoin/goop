@@ -15,17 +15,9 @@ built from — quote it in bug reports.
 
 ### Added
 
-- **`goop snapshot [--file <path>]`** — freezes everything installed,
-  editors included, with versions, URLs and hashes. Replays with
-  `goop sync --file`, so nothing new is needed to restore it.
-
-  Where a lockfile answers *what does building this need*, a snapshot
-  answers *what did this machine have* — for an audit, for rebuilding a
-  workstation, or for freezing before touching something. Defaults to
-  `goop-snapshot-<date>.json` in the current directory.
-
-  This is what lets profiles drift freely: the soft groupings can change
-  over time because the state they produce can be frozen on demand.
+- `goop lock --exclude <profile>` leaves a profile's packages out of the
+  lockfile. Useful for keeping a grouping out of the artifact CI installs
+  from; which grouping is the caller's decision, not goop's.
 
 - **`goop bootstrap`** — one idempotent command for day one and for every
   `git pull` after it. A repository declares what it needs in
@@ -45,11 +37,9 @@ built from — quote it in bug reports.
   not quietly put back on the next run — it says it is leaving it out
   instead. Running it twice in a row does nothing the second time.
 
-  `ide` is the only profile treated as a choice rather than a set, and
-  the only place goop asks a question. The first entry is the default,
-  the answer is remembered — including a refusal — and
-  `--non-interactive` takes the default without asking, so CI never sees
-  a prompt.
+  It asks nothing and knows nothing about what a profile means: every
+  profile is applied the same way. Which groupings a repository wants,
+  and what they contain, is the caller's business.
 
 - **A profile index.** What profiles *contain* can now be published by a
   team rather than defined on each machine or committed into every
@@ -112,11 +102,6 @@ built from — quote it in bug reports.
   on disk, reporting *why* in a new column.
 
 ### Changed
-
-- `goop lock` no longer puts editors in a lockfile. Anything in the `ide`
-  profile is left out, and named, because a lockfile is what CI installs
-  from and nothing in a build may depend on an editor. `goop snapshot`
-  captures them when you want the whole machine.
 
 - **Breaking: a profile is no longer a lockfile.** They shared a format,
   and the `default` profile literally *was* `goop.lock.json` — so a soft

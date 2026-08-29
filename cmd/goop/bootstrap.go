@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strconv"
-	"strings"
 
 	"github.com/TanguyBaudoin/goop/internal/index"
 	"github.com/TanguyBaudoin/goop/internal/installer"
@@ -14,12 +12,6 @@ import (
 	"github.com/TanguyBaudoin/goop/internal/ui"
 )
 
-// ideProfile is the one profile treated as a choice rather than a set to
-// install wholesale. Nothing in a build may depend on an editor, so this
-// is the only place goop asks a question -- and the only place a repo's
-// declaration is a suggestion rather than a requirement.
-const ideProfile = "ide"
-
 // cmdBootstrap brings this machine in line with what the repository
 // declares: the profiles it wants, and the toolchain its lockfile pins.
 //
@@ -28,13 +20,8 @@ const ideProfile = "ide"
 // the second time -- including not reinstalling something the user
 // deliberately removed, which is what the applied state is for.
 func cmdBootstrap(args []string) int {
-	nonInteractive := false
-	for _, a := range args {
-		if a == "--non-interactive" {
-			nonInteractive = true
-			continue
-		}
-		fmt.Fprintln(os.Stderr, "usage: goop bootstrap [--non-interactive]")
+	if len(args) > 0 {
+		fmt.Fprintln(os.Stderr, "usage: goop bootstrap")
 		return 2
 	}
 
@@ -51,7 +38,7 @@ func cmdBootstrap(args []string) int {
 	if !found {
 		ui.Fail("bootstrap: no %s here or in any parent directory", repo.FileName)
 		fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("A repository declares what it needs in "+repo.FileName+", for example:"))
-		fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim(`{"lockfile": "goop.lock.json", "profiles": ["baseline.tool", "ide"]}`))
+		fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim(`{"lockfile": "goop.lock.json", "profiles": ["baseline.tool"]}`))
 		return 1
 	}
 	fmt.Println(ui.Dim("using " + cfg.Dir))
@@ -71,12 +58,6 @@ func cmdBootstrap(args []string) int {
 
 	state := profile.LoadState()
 	for _, name := range cfg.Profiles {
-		if name == ideProfile {
-			if applyIDE(&state, nonInteractive) {
-				acted = true
-			}
-			continue
-		}
 		if applyProfile(name, &state) {
 			acted = true
 		}
@@ -168,60 +149,4 @@ func installedNames() map[string]bool {
 		out[r.Name] = true
 	}
 	return out
-}
-
-// applyIDE handles the one interactive step. The question is asked once
-// and the answer remembered -- including a refusal, so someone who wants
-// no editor from goop is not asked again on every pull.
-func applyIDE(state *profile.State, nonInteractive bool) bool {
-	if state.IDEAsked {
-		return false
-	}
-	d, err := profile.Load(ideProfile)
-	if err != nil || len(d.Apps) == 0 {
-		return false
-	}
-
-	choice := d.Apps[0] // the default, first as listed
-	if nonInteractive || !ui.IsTerminal(os.Stdin) {
-		fmt.Println(ui.Dim("choosing " + choice + " (no terminal to ask on)"))
-	} else {
-		fmt.Println("Which editor would you like? Nothing in a build depends on this.")
-		for i, a := range d.Apps {
-			marker := " "
-			if i == 0 {
-				marker = "*"
-			}
-			fmt.Printf("  %s %d) %s\n", marker, i+1, a)
-		}
-		answer, err := ui.Ask(fmt.Sprintf("Pick 1-%d, or 'n' for none [%s]: ", len(d.Apps), choice))
-		if err != nil {
-			return false
-		}
-		switch {
-		case answer == "":
-		case strings.EqualFold(answer, "n"), strings.EqualFold(answer, "none"):
-			state.IDEAsked = true
-			fmt.Println(ui.Dim("no editor installed; goop will not ask again"))
-			return false
-		default:
-			n, err := strconv.Atoi(answer)
-			if err != nil || n < 1 || n > len(d.Apps) {
-				ui.Warn("%q is not one of the choices; taking %s", answer, choice)
-			} else {
-				choice = d.Apps[n-1]
-			}
-		}
-	}
-
-	state.IDEAsked = true
-	state.IDE = choice
-	if installedNames()[choice] {
-		return false
-	}
-	if _, err := installer.Install(choice); err != nil {
-		ui.Fail("%s: %v", choice, err)
-		return false
-	}
-	return true
 }

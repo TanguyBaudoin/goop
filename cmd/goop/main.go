@@ -165,8 +165,6 @@ func run(args []string) int {
 		return cmdImport(args[1:])
 	case "lock":
 		return cmdLock(args[1:])
-	case "snapshot":
-		return cmdSnapshot(args[1:])
 	case "sync":
 		return cmdSync(args[1:])
 	case "status":
@@ -216,7 +214,7 @@ func printUsage() {
 	}
 
 	section("projects")
-	cmd("goop bootstrap [--non-interactive]", "bring this machine in line with the repo's goop.json: profiles, then its lockfile")
+	cmd("goop bootstrap", "bring this machine in line with the repo's goop.json: profiles, then its lockfile")
 	cmd("", "idempotent -- same command on day one and after a git pull; won't reinstall what you removed")
 	fmt.Fprintln(os.Stderr)
 
@@ -287,13 +285,12 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr)
 
 	section("reproducibility")
-	cmd("goop lock [--file <path>]", "freeze installed packages with versions and hashes (FR-10)")
+	cmd("goop lock [--file <path>] [--exclude <profile>]...", "freeze installed packages with versions and hashes (FR-10)")
 	cmd("", "--file writes the lockfile wherever you want -- keep it in the project repo it pins, like Cargo.lock")
 	cmd("goop sync [--file <path>]", "install exactly that state, no bucket resolution (FR-11)")
 	cmd("", "a pinned entry installs from its frozen version/URL/hash -- how you go back to an older baseline")
 	cmd("goop status [--file <path>]", "report drift; exit 3 if any, with the reason (FR-12)")
-	cmd("goop snapshot [--file <path>]", "freeze everything installed, editors included -- for an audit or to rebuild a machine")
-	cmd("", "lock says what a build needs and never includes the ide profile; snapshot says what this machine had")
+	cmd("", "--exclude <profile> leaves that profile's packages out; policy is yours, goop just applies it")
 	fmt.Fprintln(os.Stderr)
 
 	section("auth")
@@ -406,64 +403,56 @@ func parseFileFlag(args []string) (string, bool) {
 }
 
 func cmdLock(args []string) int {
-	path, ok := parseFileFlag(args)
+	var exclude []string
+	rest := args
+	for i := 0; i+1 < len(rest); {
+		if rest[i] == "--exclude" {
+			exclude = append(exclude, rest[i+1])
+			rest = append(append([]string{}, rest[:i]...), rest[i+2:]...)
+			continue
+		}
+		i++
+	}
+	path, ok := parseFileFlag(rest)
 	if !ok {
-		fmt.Fprintln(os.Stderr, "usage: goop lock [--file <path>]")
+		fmt.Fprintln(os.Stderr, "usage: goop lock [--file <path>] [--exclude <profile>]...")
 		return 2
 	}
-	// Nothing may depend on an editor, so the ide profile never reaches a
-	// lockfile. Enforced here rather than left as a rule people have to
-	// remember, because this is the artifact CI installs from.
-	f, skipped, err := installer.Lock(path, ideMembers())
+	f, skipped, err := installer.Lock(path, membersOf(exclude))
 	if err != nil {
 		ui.Fail("lock: %v", err)
 		return 1
 	}
 	ui.Ok("locked %d package(s) to %s", len(f.Entries), path)
 	if len(skipped) > 0 {
-		fmt.Println(ui.Dim(fmt.Sprintf("  left out %s -- a build must not depend on an editor (`goop snapshot` captures everything)", strings.Join(skipped, ", "))))
+		fmt.Println(ui.Dim(fmt.Sprintf("  left out %s (excluded profile)", strings.Join(skipped, ", "))))
 	}
 	warnMachineLocalSources(f)
 	return 0
 }
 
-// ideMembers is the set a lockfile must never contain.
-func ideMembers() map[string]bool {
-	d, err := profile.Load(ideProfile)
-	if err != nil {
+// membersOf collects the packages belonging to the named profiles, for
+// `goop lock --exclude`.
+//
+// Which profiles to leave out of a lockfile is a policy, and policy
+// belongs to whoever is using goop. A team that wants no editors in the
+// artifact its CI installs from passes --exclude ide; goop supplies the
+// mechanism and holds no opinion about what an editor is.
+func membersOf(names []string) map[string]bool {
+	if len(names) == 0 {
 		return nil
 	}
-	out := make(map[string]bool, len(d.Apps))
-	for _, a := range d.Apps {
-		out[a] = true
+	out := map[string]bool{}
+	for _, n := range names {
+		d, err := profile.Load(n)
+		if err != nil {
+			continue
+		}
+		for _, a := range d.Apps {
+			out[a] = true
+		}
 	}
 	return out
-}
-
-// cmdSnapshot freezes everything installed, editors included. Where a
-// lockfile says what a build needs, a snapshot says what this machine
-// had -- for an audit, for reproducing a workstation, or for freezing
-// before touching something. It replays with `goop sync --file`.
-func cmdSnapshot(args []string) int {
-	path := ""
-	switch {
-	case len(args) == 0:
-		path = "goop-snapshot-" + time.Now().Format("2006-01-02") + ".json"
-	case len(args) == 2 && args[0] == "--file":
-		path = args[1]
-	default:
-		fmt.Fprintln(os.Stderr, "usage: goop snapshot [--file <path>]")
-		return 2
-	}
-	f, _, err := installer.Lock(path, nil)
-	if err != nil {
-		ui.Fail("snapshot: %v", err)
-		return 1
-	}
-	ui.Ok("captured %d package(s) to %s", len(f.Entries), path)
-	fmt.Println(ui.Dim("  replay it with `goop sync --file " + path + "`"))
-	warnMachineLocalSources(f)
-	return 0
 }
 
 // warnMachineLocalSources flags locked entries whose source only exists

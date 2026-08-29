@@ -22,12 +22,11 @@ import (
 // Lock freezes installed packages into a lockfile at path, leaving out
 // anything in skip, and reports what it left out.
 //
-// skip exists because a lockfile and a snapshot want different things. A
-// lockfile answers "what does building this need", and nothing may
-// depend on an editor -- so `goop lock` excludes the ide profile rather
-// than quietly committing someone's editor into the artifact CI
-// consumes. A snapshot answers "what did this machine have", and passes
-// nil.
+// skip is a mechanism, not a policy: goop has no opinion about which
+// packages belong in a lockfile. A caller that wants a machine's full
+// state passes nil; one that wants to keep some grouping out of the
+// artifact its CI installs from passes those names. Deciding which is
+// the caller's business.
 func Lock(path string, skip map[string]bool) (lockfile.File, []string, error) {
 	records, err := List()
 	if err != nil {
