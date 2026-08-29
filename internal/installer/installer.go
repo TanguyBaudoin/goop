@@ -106,6 +106,27 @@ type Record struct {
 	// survives goop upgrades and is visible in `goop info`.
 	Hold        bool      `json:"hold,omitempty"`
 	InstalledAt time.Time `json:"installed_at"`
+	// State is "pending" between the commit rename and the moment shims,
+	// shortcuts and environment entries are in place; "ready" after.
+	// Empty means ready, for records written before this field existed.
+	State string `json:"state,omitempty"`
+}
+
+// Record states. An empty state means ready: records written before this
+// existed are valid installs, and must not all become suspect.
+const (
+	recordPending = "pending"
+	recordReady   = "ready"
+)
+
+// Ready reports whether the install this record describes actually
+// finished. The record is committed by the rename that makes a version
+// visible, but shims, shortcuts and environment entries are created
+// after that -- so a failure in between used to leave a record claiming
+// an install that has no working commands. Worse, the next attempt saw
+// the record, reported "already installed", and did nothing.
+func (r Record) Ready() bool {
+	return r.State == "" || r.State == recordReady
 }
 
 // ExtraShim is one shim a manifest script created itself. Name is what
@@ -335,7 +356,7 @@ func installResolved(appName, bucketName, archKey string, resolved manifest.Reso
 	}
 
 	versionDir := paths.AppVersion(appName, resolved.Version)
-	if rec, ok := readRecord(versionDir); ok {
+	if rec, ok := readRecord(versionDir); ok && rec.Ready() {
 		if !quiet {
 			Logf("%s %s already installed", appName, resolved.Version)
 		}
@@ -343,6 +364,17 @@ func installResolved(appName, bucketName, archKey string, resolved manifest.Reso
 			return Record{}, err
 		}
 		return rec, nil
+	} else if ok {
+		// A record that is not ready describes an install that committed
+		// and then failed before its shims existed. Clear it out so the
+		// retry below can commit over the same version -- os.Rename will
+		// not replace an existing directory, so leaving it there would
+		// make every retry fail for a reason unrelated to the original
+		// problem.
+		Logf("%s %s: previous install did not finish, redoing it", appName, resolved.Version)
+		if err := os.RemoveAll(versionDir); err != nil {
+			return Record{}, fmt.Errorf("clear the unfinished install of %s: %w", appName, err)
+		}
 	}
 
 	staging := paths.AppVersionStaging(appName, resolved.Version)
@@ -503,6 +535,10 @@ func installResolved(appName, bucketName, archKey string, resolved manifest.Reso
 		Depends:           functionalDepends(resolved.Depends, resolved),
 		InstalledAt:       time.Now().UTC(),
 	}
+	// Written pending: the rename below makes this version visible, but
+	// the install is not finished until shims, shortcuts and env entries
+	// exist. Anything that fails in between leaves a record that says so.
+	rec.State = recordPending
 	if err := writeRecord(staging, rec); err != nil {
 		return Record{}, err
 	}
@@ -535,6 +571,14 @@ func installResolved(appName, bucketName, archKey string, resolved manifest.Reso
 		}
 	}
 	applyEnv(appName, envSet, envAddedPaths)
+
+	// Everything the install promises now exists, so the record can stop
+	// hedging. Until this line a retry re-does the work; after it, the
+	// "already installed" shortcut is telling the truth.
+	rec.State = recordReady
+	if err := writeRecord(versionDir, rec); err != nil {
+		return Record{}, fmt.Errorf("finalize record for %s: %w", appName, err)
+	}
 
 	Logf("installed %s %s", appName, resolved.Version)
 	showNotes(resolved.Notes, versionDir, paths.Persist(appName))
@@ -827,13 +871,6 @@ func createShims(appName string, bins []manifest.BinEntry) error {
 		return err
 	}
 	for _, b := range bins {
-		shimExe := filepath.Join(paths.Shims(), b.Name+".exe")
-		os.Remove(shimExe) // fine if it doesn't exist; reinstall/upgrade case
-		if err := os.Link(paths.ShimMaster(), shimExe); err != nil {
-			return fmt.Errorf("create shim %s: %w", b.Name, err)
-		}
-
-		sidecar := filepath.Join(paths.Shims(), b.Name+".shim")
 		// A manifest `bin` entry is relative to the app directory, but a
 		// rebuilt script-created shim (Reset) carries the absolute target
 		// it was recorded with -- joining that onto AppCurrent would
@@ -842,10 +879,29 @@ func createShims(appName string, bins []manifest.BinEntry) error {
 		if !filepath.IsAbs(targetPath) {
 			targetPath = filepath.Join(paths.AppCurrent(appName), targetPath)
 		}
+
+		// Checked before anything is written. A shim whose target does not
+		// exist is worse than no shim: it looks installed, `goop status`
+		// reports no drift, and the failure only surfaces when someone runs
+		// the command. Every manifest hook has run by this point, so a file
+		// that is not there never will be -- usually a `bin` that does not
+		// match what the archive actually contains, or an extract_dir that
+		// put things somewhere else.
+		if _, err := os.Stat(targetPath); err != nil {
+			return fmt.Errorf("shim %s would point at a missing target %s -- the manifest's bin entry %q does not match what was installed", b.Name, targetPath, b.Exe)
+		}
+
+		shimExe := filepath.Join(paths.Shims(), b.Name+".exe")
+		os.Remove(shimExe) // fine if it doesn't exist; reinstall/upgrade case
+		if err := os.Link(paths.ShimMaster(), shimExe); err != nil {
+			return fmt.Errorf("create shim %s: %w", b.Name, err)
+		}
+
 		content := fmt.Sprintf("path = %q\n", targetPath)
 		if b.Args != "" {
 			content += fmt.Sprintf("args = %q\n", b.Args)
 		}
+		sidecar := filepath.Join(paths.Shims(), b.Name+".shim")
 		if err := os.WriteFile(sidecar, []byte(content), 0o644); err != nil {
 			return fmt.Errorf("write sidecar for %s: %w", b.Name, err)
 		}

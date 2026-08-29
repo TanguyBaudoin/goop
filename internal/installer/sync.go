@@ -2,6 +2,8 @@ package installer
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -207,6 +209,11 @@ type DriftEntry struct {
 	Name    string
 	Locked  string
 	Current string
+	// Reason says what kind of drift this is. Version mismatch is only
+	// one of them: an install can carry the right version and still not
+	// work, which is the case a version-only comparison reported as
+	// conformant.
+	Reason string
 }
 
 // Status compares profileName's membership file against installed state
@@ -226,12 +233,64 @@ func Status(profileName string) ([]DriftEntry, error) {
 	for _, e := range f.Entries {
 		rec, ok := readCurrentRecord(e.Name)
 		if !ok {
-			drift = append(drift, DriftEntry{Name: e.Name, Locked: e.Version})
+			drift = append(drift, DriftEntry{Name: e.Name, Locked: e.Version, Reason: "not installed"})
 			continue
 		}
 		if rec.Version != e.Version {
-			drift = append(drift, DriftEntry{Name: e.Name, Locked: e.Version, Current: rec.Version})
+			drift = append(drift, DriftEntry{Name: e.Name, Locked: e.Version, Current: rec.Version, Reason: "wrong version"})
+			continue
+		}
+		// A version match is not conformance. The record is committed
+		// before shims exist, so an install that failed in between claims
+		// the right version while providing no working command -- which is
+		// how a machine gets reported as in sync while being unusable.
+		if !rec.Ready() {
+			drift = append(drift, DriftEntry{Name: e.Name, Locked: e.Version, Current: rec.Version, Reason: "install did not finish"})
+			continue
+		}
+		if missing := missingShimTargets(rec); missing != "" {
+			drift = append(drift, DriftEntry{Name: e.Name, Locked: e.Version, Current: rec.Version, Reason: "broken shim: " + missing})
 		}
 	}
 	return drift, nil
+}
+
+// missingShimTargets returns the first shim whose sidecar names a target
+// that is not there, or "" when every declared command resolves. Checked
+// against the disk rather than the record, because the record is exactly
+// what cannot be trusted here.
+func missingShimTargets(rec Record) string {
+	for _, b := range rec.Bin {
+		sidecar := filepath.Join(paths.Shims(), b.Name+".shim")
+		data, err := os.ReadFile(sidecar)
+		if err != nil {
+			return b.Name + " (no sidecar)"
+		}
+		target := sidecarTargetPath(string(data))
+		if target == "" {
+			continue
+		}
+		if _, err := os.Stat(target); err != nil {
+			return b.Name
+		}
+	}
+	return ""
+}
+
+// sidecarTargetPath pulls the path out of a `path = "..."` sidecar line.
+func sidecarTargetPath(body string) string {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimPrefix(strings.TrimSpace(line), string(rune(0xFEFF)))
+		rest, ok := strings.CutPrefix(line, "path")
+		if !ok {
+			continue
+		}
+		rest = strings.TrimSpace(rest)
+		rest, ok = strings.CutPrefix(rest, "=")
+		if !ok {
+			continue
+		}
+		return strings.Trim(strings.TrimSpace(rest), `"`)
+	}
+	return ""
 }

@@ -505,9 +505,16 @@ func cmdStatus(args []string) int {
 		if d.Current == "" {
 			current = ui.Red("not installed")
 		}
-		rows[i] = []string{d.Name, d.Locked, current}
+		// Reason is what distinguishes "wrong version" from "right
+		// version, broken install" -- the second used to be reported as
+		// no drift at all.
+		reason := d.Reason
+		if reason != "wrong version" && reason != "" {
+			reason = ui.Red(reason)
+		}
+		rows[i] = []string{d.Name, d.Locked, current, reason}
 	}
-	fmt.Print(ui.Table([]string{"NAME", "LOCKED", "CURRENT"}, rows))
+	fmt.Print(ui.Table([]string{"NAME", "LOCKED", "CURRENT", "WHY"}, rows))
 	return 3
 }
 

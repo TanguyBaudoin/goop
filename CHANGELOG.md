@@ -22,6 +22,31 @@ built from — quote it in bug reports.
   It adds no bucket, since a machine on an internal network wants its own
   rather than the public one, and says so with the command to run.
 
+### Fixed
+
+- An install could report success while leaving a command that does not
+  work, and `goop status` would then call the machine conformant.
+
+  Three things combined. `createShims` never checked that a `bin` entry's
+  target existed, so a manifest that did not match its own archive
+  produced a shim pointing at nothing. The install record is committed by
+  the rename that makes a version visible, but shims are created after
+  that — so a failure in between left a record claiming an install with no
+  working commands. And `Status` decided conformance from the record's
+  version alone, without opening a single file.
+
+  Reproduced end to end before fixing: install green, `goop list` showing
+  the package, `goop status` reporting **in sync**, and the command
+  failing with "the system cannot find the file specified". A retry then
+  reported `already installed` and did nothing, so one failure left a
+  machine permanently mislabelled.
+
+  Now: a missing target fails the install before anything is written; the
+  record carries `state: "pending"` until shims, shortcuts and
+  environment entries exist, so a retry redoes the work instead of
+  trusting it; and `Status` checks the record state and every shim target
+  on disk, reporting *why* in a new column.
+
 ## [0.2.0] — 2026-08-29
 
 ### Added
