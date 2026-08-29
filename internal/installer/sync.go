@@ -19,13 +19,27 @@ import (
 // "<root>/goop.lock.json", if none has ever been activated -- unchanged
 // from before profiles existed). Apps whose record can't be read (broken
 // `current`) are skipped -- there's nothing trustworthy to lock.
-func Lock(path string) (lockfile.File, error) {
+// Lock freezes installed packages into a lockfile at path, leaving out
+// anything in skip, and reports what it left out.
+//
+// skip exists because a lockfile and a snapshot want different things. A
+// lockfile answers "what does building this need", and nothing may
+// depend on an editor -- so `goop lock` excludes the ide profile rather
+// than quietly committing someone's editor into the artifact CI
+// consumes. A snapshot answers "what did this machine have", and passes
+// nil.
+func Lock(path string, skip map[string]bool) (lockfile.File, []string, error) {
 	records, err := List()
 	if err != nil {
-		return lockfile.File{}, err
+		return lockfile.File{}, nil, err
 	}
 	var f lockfile.File
+	var skipped []string
 	for _, r := range records {
+		if skip[r.Name] {
+			skipped = append(skipped, r.Name)
+			continue
+		}
 		if strings.HasPrefix(r.Version, "(broken") {
 			Logf("%s: skipped (unreadable record)", r.Name)
 			continue
@@ -43,9 +57,9 @@ func Lock(path string) (lockfile.File, error) {
 		})
 	}
 	if err := lockfile.Save(path, f); err != nil {
-		return lockfile.File{}, err
+		return lockfile.File{}, nil, err
 	}
-	return f, nil
+	return f, skipped, nil
 }
 
 // SyncResult tallies what Sync did.

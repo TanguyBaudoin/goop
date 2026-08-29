@@ -165,6 +165,8 @@ func run(args []string) int {
 		return cmdImport(args[1:])
 	case "lock":
 		return cmdLock(args[1:])
+	case "snapshot":
+		return cmdSnapshot(args[1:])
 	case "sync":
 		return cmdSync(args[1:])
 	case "status":
@@ -290,6 +292,8 @@ func printUsage() {
 	cmd("goop sync [--file <path>]", "install exactly that state, no bucket resolution (FR-11)")
 	cmd("", "a pinned entry installs from its frozen version/URL/hash -- how you go back to an older baseline")
 	cmd("goop status [--file <path>]", "report drift; exit 3 if any, with the reason (FR-12)")
+	cmd("goop snapshot [--file <path>]", "freeze everything installed, editors included -- for an audit or to rebuild a machine")
+	cmd("", "lock says what a build needs and never includes the ide profile; snapshot says what this machine had")
 	fmt.Fprintln(os.Stderr)
 
 	section("auth")
@@ -407,12 +411,57 @@ func cmdLock(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: goop lock [--file <path>]")
 		return 2
 	}
-	f, err := installer.Lock(path)
+	// Nothing may depend on an editor, so the ide profile never reaches a
+	// lockfile. Enforced here rather than left as a rule people have to
+	// remember, because this is the artifact CI installs from.
+	f, skipped, err := installer.Lock(path, ideMembers())
 	if err != nil {
 		ui.Fail("lock: %v", err)
 		return 1
 	}
 	ui.Ok("locked %d package(s) to %s", len(f.Entries), path)
+	if len(skipped) > 0 {
+		fmt.Println(ui.Dim(fmt.Sprintf("  left out %s -- a build must not depend on an editor (`goop snapshot` captures everything)", strings.Join(skipped, ", "))))
+	}
+	warnMachineLocalSources(f)
+	return 0
+}
+
+// ideMembers is the set a lockfile must never contain.
+func ideMembers() map[string]bool {
+	d, err := profile.Load(ideProfile)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]bool, len(d.Apps))
+	for _, a := range d.Apps {
+		out[a] = true
+	}
+	return out
+}
+
+// cmdSnapshot freezes everything installed, editors included. Where a
+// lockfile says what a build needs, a snapshot says what this machine
+// had -- for an audit, for reproducing a workstation, or for freezing
+// before touching something. It replays with `goop sync --file`.
+func cmdSnapshot(args []string) int {
+	path := ""
+	switch {
+	case len(args) == 0:
+		path = "goop-snapshot-" + time.Now().Format("2006-01-02") + ".json"
+	case len(args) == 2 && args[0] == "--file":
+		path = args[1]
+	default:
+		fmt.Fprintln(os.Stderr, "usage: goop snapshot [--file <path>]")
+		return 2
+	}
+	f, _, err := installer.Lock(path, nil)
+	if err != nil {
+		ui.Fail("snapshot: %v", err)
+		return 1
+	}
+	ui.Ok("captured %d package(s) to %s", len(f.Entries), path)
+	fmt.Println(ui.Dim("  replay it with `goop sync --file " + path + "`"))
 	warnMachineLocalSources(f)
 	return 0
 }
