@@ -80,10 +80,12 @@ jobs:
       # a multi-line --notes argument: inside a `run: |` block every line
       # must stay indented, and a line starting at column 0 silently ends
       # the block and makes the whole workflow file unparseable.
-      # The offline bundle: everything needed to install goop on a machine
-      # with no network at all. Without the bucket it would install but be
-      # unable to install anything, which is not much use.
+      # The offline bundle: goop, its checksum, and the installer. No
+      # bucket -- a machine on an internal network wants its own bucket,
+      # not the public one, and bundling a bucket nobody uses only makes
+      # the installer more complicated.
       - name: Assemble the offline bundle
+        id: bundle
         shell: pwsh
         run: |
           $stage = 'build\offline'
@@ -92,43 +94,37 @@ jobs:
           Copy-Item build\checksums.txt $stage
           Copy-Item scripts\install.ps1 $stage
 
-          # A codeload snapshot rather than a clone: the bundle must not
-          # assume git exists on the machine that unpacks it.
-          Invoke-WebRequest -UseBasicParsing `
-            -Uri 'https://codeload.github.com/ScoopInstaller/Main/zip/HEAD' `
-            -OutFile (Join-Path $stage 'main-bucket.zip')
-
           $readme = @(
             'goop ${{ steps.version.outputs.version }} -- offline bundle',
             '',
-            'Everything needed to install goop with no network access:',
-            'goop.exe, its checksum, the installer, and a snapshot of the',
-            'main bucket so packages can actually be installed afterwards.',
+            'goop.exe, its checksum, and the installer. Nothing here needs a',
+            'network or git.',
             '',
             'Unpack anywhere, then from that directory run:',
             '',
             '    .\install.ps1',
             '',
-            'It finds goop.exe next to itself, verifies its checksum, and',
-            'seeds the main bucket from main-bucket.zip. The bucket is still',
-            'recorded under its real URL, so `goop bucket update` works',
-            'normally once the machine has a network again.',
+            'It finds goop.exe next to itself, verifies its checksum, sets up',
+            'the directories and puts goop on PATH.',
             '',
-            'Options: -GoopDir <path> to install elsewhere, -NoBucket to',
-            'skip the bucket, -DryRun to see what would change.',
+            'No bucket is added: on an internal network you want your own.',
+            'Afterwards, add it:',
             '',
-            'Packages themselves still need to come from somewhere. Copy a',
-            'populated cache directory across, or point manifests at a',
-            'local share -- see the README section "Offline and restricted',
-            'networks".'
+            '    goop bucket add internal file://fileserver/goop/our-bucket.zip',
+            '',
+            'or the public one if you can reach GitHub:',
+            '',
+            '    goop bucket add main https://github.com/ScoopInstaller/Main',
+            '',
+            'Options: -GoopDir <path> to install elsewhere, -DryRun to see',
+            'what would change.'
           )
           Set-Content -Path (Join-Path $stage 'README.txt') -Value $readme -Encoding utf8
 
           $zip = "build\goop-${{ steps.version.outputs.version }}-offline.zip"
           Compress-Archive -Path "$stage\*" -DestinationPath $zip -Force
           "offline_zip=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          Write-Output "bundle: $((Get-Item $zip).Length / 1MB) MB"
-        id: bundle
+          Write-Output ("bundle: {0:N1} MB" -f ((Get-Item $zip).Length / 1MB))
 
       - name: Publish
         shell: pwsh

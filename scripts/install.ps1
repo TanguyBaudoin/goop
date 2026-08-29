@@ -244,26 +244,22 @@ if ($toAdd) {
     Write-Ok "PATH already up to date"
 }
 
-if (-not $NoBucket) {
+if ($bundleExe -and -not $NoBucket) {
+    # Installed from a bundle, so there is probably no network -- and on an
+    # internal network the public main bucket is not what you want anyway.
+    # Say what to do instead of failing to reach GitHub.
+    Write-Host ""
+    Write-Host "No bucket was added. Add the one you use, for example:"
+    Write-Host "    goop bucket add main https://github.com/ScoopInstaller/Main"
+    Write-Host "    goop bucket add internal file://fileserver/goop/our-bucket.zip"
+} elseif (-not $NoBucket) {
     $bucketsFile = Join-Path $GoopDir 'buckets.json'
     $hasMain = (Test-Path $bucketsFile) -and ((Get-Content $bucketsFile -Raw) -match '"main"')
     if (-not $hasMain) {
         # goop falls back to a codeload archive when git is absent, so this
         # works on a machine with no git installed.
-        # An offline bundle can carry the bucket too. --from seeds the
-        # content from the local archive while still recording the bucket
-        # under its canonical URL, so `goop bucket update` works normally
-        # once the machine has a network again.
-        $bundleBucket = if ($bundleDir) { Join-Path $bundleDir 'main-bucket.zip' } else { $null }
-        if ($bundleBucket -and (Test-Path $bundleBucket)) {
-            Write-Step "Adding main bucket from the bundle ..."
-            # [uri].AbsoluteUri produces a correct file:/// URL, including
-            # percent-encoding a path with spaces -- which goop decodes.
-            & (Join-Path $binDir 'goop.exe') bucket add main https://github.com/ScoopInstaller/Main --from ([uri]$bundleBucket).AbsoluteUri
-        } else {
-            Write-Step "Adding main bucket ..."
-            & (Join-Path $binDir 'goop.exe') bucket add main https://github.com/ScoopInstaller/Main
-        }
+        Write-Step "Adding main bucket ..."
+        & (Join-Path $binDir 'goop.exe') bucket add main https://github.com/ScoopInstaller/Main
     }
 }
 
