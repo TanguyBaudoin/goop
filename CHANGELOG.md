@@ -13,10 +13,6 @@ built from — quote it in bug reports.
 
 ## [Unreleased]
 
-Nothing yet.
-
-## [0.2.0] — 2026-08-29
-
 ### Added
 
 - An offline bundle, published with each release as
@@ -25,6 +21,11 @@ Nothing yet.
   installs from the bundle instead of downloading — no network, no git.
   It adds no bucket, since a machine on an internal network wants its own
   rather than the public one, and says so with the command to run.
+
+## [0.2.0] — 2026-08-29
+
+### Added
+
 - `goop self-update` replaces goop itself with the current release. It
   compares the published checksum against the running binary first, so
   being already current costs a few dozen bytes rather than a download;
