@@ -15,6 +15,34 @@ built from — quote it in bug reports.
 
 ### Added
 
+- **A profile index.** What profiles *contain* can now be published by a
+  team rather than defined on each machine or committed into every
+  repository — so adding a tool to `baseline.tool` does not mean a commit
+  per repo.
+
+  ```powershell
+  goop config set-index file://fileserver/goop/index.json
+  goop index update
+  ```
+
+  The document is one JSON object:
+  `{"profiles": {"baseline.tool": ["git", "graphviz", "srecord"]}}`.
+  It is fetched through goop's own downloader, so per-host auth, the
+  configured proxy and `file://` all apply — an internal HTTP server and
+  a network share are configured identically, and neither needs git.
+
+  The last good copy is cached, so a machine that cannot reach the index
+  keeps resolving profiles, and a publish that produces invalid JSON is
+  reported without replacing a working cache.
+
+  A profile defined locally always wins over the index, so a machine can
+  diverge deliberately. Editing an index-defined profile copies it here
+  and says so — that machine stops receiving the team's changes to it,
+  which is worth knowing at the time rather than months later.
+
+- `goop profile show <name>` — what a profile contains, whether it came
+  from the index or this machine, and which members are installed.
+
 - An offline bundle, published with each release as
   `goop-<version>-offline.zip`: goop, its checksum and the installer,
   about 15 MB. `install.ps1` detects a `goop.exe` sitting next to it and
