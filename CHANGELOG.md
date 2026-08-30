@@ -11,6 +11,20 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
+## [Unreleased]
+
+### Fixed
+
+- `goop audit` and `goop import` no longer accept a profile file. One is
+  valid JSON with no `apps`, so it decoded into an empty capture and
+  `audit` reported every installed package as "not in the capture" —
+  a confident, wrong answer to a question nobody asked. `check` and
+  `sync` already refused a capture for the mirror reason; this is the
+  other half of that guard, and it names which file you handed over.
+
+  Found by exercising the published 0.3.0 binary rather than the local
+  build, which is the only reason it was found at all.
+
 ## [0.3.0] — 2026-08-30
 
 The release that separates what a *project* needs from what is on a

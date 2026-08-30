@@ -48,6 +48,23 @@ func Load(path string) (File, error) {
 	if err != nil {
 		return File{}, fmt.Errorf("read setup file %s: %w", path, err)
 	}
+	// Probe for the key before decoding into File. A profile file is
+	// valid JSON with no `apps`, so it decodes into an empty capture and
+	// `audit` then reports every installed package as "not in the
+	// capture" -- a confident, wrong answer to a question nobody asked.
+	// `check` already refuses a capture for the mirror reason; this is
+	// the other half of that guard.
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return File{}, fmt.Errorf("parse setup file %s: %w", path, err)
+	}
+	if _, ok := probe["apps"]; !ok {
+		if _, isProfiles := probe["profiles"]; isProfiles {
+			return File{}, fmt.Errorf("%s is a profile file, not a machine capture -- use `goop check`/`goop sync`", path)
+		}
+		return File{}, fmt.Errorf("%s is not a machine capture (no \"apps\")", path)
+	}
+
 	var f File
 	if err := json.Unmarshal(data, &f); err != nil {
 		return File{}, fmt.Errorf("parse setup file %s: %w", path, err)
