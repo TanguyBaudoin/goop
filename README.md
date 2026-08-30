@@ -33,9 +33,9 @@ Want it somewhere else? Set `GOOP_HOME` first:
 $env:GOOP_HOME = 'D:\goop'; irm https://raw.githubusercontent.com/TanguyBaudoin/goop/main/scripts/install.ps1 | iex
 ```
 
-Already using Scoop? `goop import` adopts everything you have installed
-without re-downloading a byte, and without touching Scoop's own files —
-so you can go back whenever you like.
+Already using Scoop? `goop adopt` takes over everything you have
+installed without re-downloading a byte, and without touching Scoop's own
+files — so you can go back whenever you like.
 
 To remove goop entirely, `scripts/uninstall.ps1` undoes all of it.
 
@@ -64,7 +64,7 @@ swaps it in. If anything fails at that point the old binary is put back.
 
 It is never automatic, and won't be. goop exists to freeze toolchains; a
 binary that replaced itself between two `goop sync` runs would change the
-engine reading your lockfile without being asked. It also refuses to go
+engine reading your pins without being asked. It also refuses to go
 backwards — a locally built binary is not an older release — unless you
 pass `--force`.
 
@@ -78,11 +78,11 @@ difference is roughly **sixty-fold**. Searching all ~5000 manifests in
 `main` and `extras` takes about a second. Installs and updates run in
 parallel.
 
-**It keeps your toolchain reproducible.** `goop lock` writes a lockfile
-pinning every package's exact version, URL and hash. `goop sync`
-reinstalls precisely that, straight from the frozen values, without ever
-consulting a bucket. Keep the lockfile in your project's repository and
-checking out an old commit gives you the toolchain that went with it.
+**It keeps your toolchain reproducible.** One JSON file, committed with
+your code, says which packages the project needs and at which versions.
+`goop check` tells you whether this machine matches it — instantly,
+offline — and `goop sync` makes it match. Checking out an old commit
+gives you the toolchain that went with it.
 
 **It works on locked-down networks.** Per-host authentication with
 credentials in the Windows Credential Manager, proxy support, buckets
@@ -186,28 +186,116 @@ Only packages you asked for by name become members — a dependency pulled
 in automatically never does — so the tree shows what you chose versus
 what came along for the ride.
 
-## Reproducible toolchains
+Profiles live on your machine and are allowed to drift. When you want one
+to be reproducible somewhere else, you export it — which is the next
+section.
 
-This is the part Scoop has no answer for.
+## What a repository needs
+
+This is the part Scoop has no answer for: a file, committed next to your
+code, that says which packages the project needs and at which versions —
+and a command that tells you whether this machine matches it.
+
+Whoever sets the project up writes the file from what they actually have
+installed and working:
 
 ```powershell
-goop lock --file .\chipA.lock.json     # freeze what's installed
-git add chipA.lock.json                # it belongs with your code
+goop profile export --out .\goop.profiles.json --profile chipA
+git add goop.profiles.json
 ```
 
-On another machine, or in six months on the same one:
+Everyone else, on any machine, ever:
 
 ```powershell
-goop sync --file .\chipA.lock.json
+goop check .\goop.profiles.json     # what is missing, wrong, or broken
+goop sync  .\goop.profiles.json     # make it right
 ```
 
-`sync` installs each entry from its recorded version, URL and hash. It
-never asks a bucket anything, which is exactly what lets you install a
-version that is no longer current. Going back to an older baseline is
-just checking out an older commit.
+`check` reads install receipts and nothing else — no bucket, no network —
+so it answers in milliseconds and gives the same answer on a plane. It
+exits **3** on deviation, a distinct code so CI can tell drift from
+failure.
 
-For CI, `goop status` exits **3** when what's installed has drifted from
-the lockfile — a distinct code, so a build can tell drift from failure.
+One file can hold several profiles, and you name the ones you care about:
+
+```powershell
+goop sync .\goop.profiles.json chipA
+```
+
+Anything not named is left alone, and **a package outside the profiles is
+never a deviation**. The question is "does this machine have what the
+project needs", not "is this machine clean" — so goop never has an
+opinion about the rest of your tools. Naming a profile the file does not
+declare is an error rather than silence, because silence would read as
+"all good".
+
+`sync` is idempotent and needs no prior state: an empty machine and a
+half-drifted one take the same path, which is "make each deviation go
+away".
+
+### What a pin actually pins
+
+Each package is pinned to a version **and a manifest digest**:
+
+```json
+{"profiles": {"chipA": {"packages": {
+  "cmake": {"version": "3.31.2", "hash": "sha256:9f2a…"}
+}}}}
+```
+
+A version number is a claim by whoever published it. The digest is a
+fingerprint of the manifest itself: the download URL, the artifact hash,
+every `pre_install` and `post_install` script, the shims, shortcuts and
+environment entries it creates. If someone republishes `cmake 3.31.2`
+with an edited `post_install`, the version still matches — and `check`
+still catches it.
+
+It is computed by re-encoding the manifest canonically rather than
+hashing the file, so formatting cannot affect it. That matters
+concretely: a bucket cloned by Git with `core.autocrlf=true` has CRLF on
+every line where the same bucket fetched as a zip has LF, and goop uses
+both. `checkver` and `autoupdate` are excluded — they tell a bucket
+maintainer how to find new versions, and change nothing about installing
+the one you pinned.
+
+A bare version string works too, when you don't want the digest:
+
+```json
+{"profiles": {"chipA": {"packages": {"cmake": "3.31.2"}}}}
+```
+
+### Taking a profile as your own
+
+```powershell
+goop profile clone .\goop.profiles.json chipA
+```
+
+You now have a local, editable `chipA`. Add or remove packages with
+`goop profile add/remove`, then `goop profile export` to publish it back.
+
+## Moving to a new machine
+
+Profiles answer "does this project have what it needs". The other
+question — "what is on this machine" — is a separate plane with its own
+three commands and nothing to do with any repository:
+
+```powershell
+goop export --out .\machine.json    # buckets + every installed package
+goop import .\machine.json          # elsewhere: buckets first, then packages
+goop audit  .\machine.json          # did it come out the same?
+```
+
+`audit` reports **both directions**: what the capture has and this
+machine doesn't, *and* what this machine has that the capture never
+mentioned. Exit 3 on any difference.
+
+Buckets are captured alongside the packages, and not optionally — a list
+of packages with no catalogue to resolve them against is not a setup.
+This is the same shape as `scoop export`/`scoop import`, for the same
+reason.
+
+Keep the two apart. A capture describes a machine and will be stale
+tomorrow; a profile file describes a project and belongs in its history.
 
 ## Private repositories and proxies
 
@@ -245,22 +333,22 @@ checked before anything is fetched. That makes it portable:
 ```powershell
 # on a connected machine
 goop download cmake ninja gcc
-goop lock --file .\chipA.lock.json
+goop profile export --out .\goop.profiles.json --profile chipA
 ```
 
-Copy `<GOOP_HOME>\cache` across, then on the isolated machine:
+Copy `<GOOP_HOME>\cache` across — and the bucket, if the isolated machine
+hasn't got one — then:
 
 ```powershell
-goop sync --file .\chipA.lock.json
+goop sync .\goop.profiles.json
 ```
 
-Every package resolves from the cache. Nothing touches the network, and
-the lockfile keeps real URLs so it still means something.
+Every package resolves out of the cache. Nothing touches the network.
 
 Manifests and buckets can also point straight at a share with a `file://`
-URL. Use the UNC form (`file://server/share/x.zip`) if the lockfile will
-travel — a drive-letter path only exists on the machine that wrote it,
-and `goop lock` warns you when it sees one.
+URL. Use the UNC form (`file://server/share/x.zip`) if the file will
+travel: a drive-letter path only exists on the machine that wrote it, and
+both `goop profile export` and `goop export` warn you when they see one.
 
 
 
@@ -382,9 +470,9 @@ question a package manager has to answer before anyone sensible adopts
 it. **Nothing here traps you.** Packages are installed in Scoop's own
 directory layout — `apps\<name>\<version>\` with a `current` junction —
 not in some format only goop understands. Downloads sit in a plain cache
-directory, and lockfiles are plain JSON you can read. If goop goes quiet,
-your tools are still on disk, still runnable, and Scoop can be pointed at
-the same tree. Requirement NR-07 exists so that trusting this project is
+directory, and every file goop writes — profiles, captures, install
+receipts — is plain JSON you can read. If goop goes quiet, your tools are
+still on disk, still runnable, and Scoop can be pointed at the same tree. Requirement NR-07 exists so that trusting this project is
 not a one-way door.
 
 Being equally plain about the limit: goop records its own metadata

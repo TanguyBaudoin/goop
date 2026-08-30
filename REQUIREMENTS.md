@@ -42,7 +42,7 @@ justify the project.
 |---|---|---|---|---|
 | A1 | **Speed** | PowerShell parsing, sequential downloads | Order-of-magnitude gain on `update` and `status`; native parallel downloads | **Met** |
 | A2 | **Authentication** | None per repository | Native, host-keyed, encrypted credentials | **Met** |
-| A3 | **Reproducibility** | None | Versionable lockfile, deterministic `sync` | **Met** |
+| A3 | **Reproducibility** | None | Versionable pins with manifest digests, `check`/`sync` in CI | **Met** |
 | A4 | **Dependencies** | `depends` with no version constraints | Version constraints, explicit resolution, conflicts reported | **Partial** |
 | A5 | **Provenance** | Hash only | Signature verification, traceable origin | **Partial** |
 
@@ -52,7 +52,7 @@ and dependency resolution is recursive with cycle detection. But the
 Scoop manifest schema has no place for a constraint inside `depends`, and
 no real manifest carries one — so against the actual corpus, dependency
 resolution is by name only, exactly as in Scoop. The added value is at
-the command line and in lockfiles, not in dependency edges.
+the command line and in the pinned files, not in dependency edges.
 
 **A5 is partial in the same way.** `goop verify` checks minisign
 signatures, and every installed package records where it came from, but
@@ -180,17 +180,56 @@ installer-based applications, public and private buckets.
 
 | Ref | Requirement | Priority | Status |
 |---|---|---|---|
-| FR-10 | Versionable lockfile: name, version, bucket, resolved URL, hash, architecture | Blocking | **Met** |
-| FR-11 | `sync` installs exactly the locked state, with no resolution step | Blocking | **Met** |
+| FR-10 | Versionable file pinning, per package, the version and the manifest it was installed from | Blocking | **Met** |
+| FR-11 | Replaying a pinned file installs exactly that state | Blocking | **Partial** |
 | FR-12 | Drift detection with a dedicated exit code, usable in CI | Blocking | **Met** |
 | FR-13 | Text format, stable ordering, diffable | Blocking | **Met** |
-| FR-14 | Lockfile locatable inside a project repository, not only under the goop root | Blocking | **Met** |
+| FR-14 | The file lives inside a project repository, not only under the goop root | Blocking | **Met** |
+| FR-15 | Detect a manifest republished under an unchanged version number | Important | **Met** |
+| FR-16 | Capture and replay a whole machine, buckets included, independently of any project | Important | **Met** |
 
-**FR-14 was added after the fact.** The original design put lockfiles
-under the goop home, which is wrong for the actual use case: a lockfile
-describes what a *project* needs, so it belongs in that project's
-repository and evolves on its branches. `goop lock --file ./chipA.lock.json`
-and `goop sync --file` take a path.
+**FR-10/FR-14 were reshaped after the fact.** The original design had a
+lockfile under the goop home, and profiles were *stored as* lockfiles —
+so a soft grouping of names was indistinguishable from a pinned,
+auditable artifact. There are now two planes that never touch:
+
+- **What a project needs** — one JSON file, committed with the code,
+  holding any number of profiles. `goop check <file> [profile...]` and
+  `goop sync <file> [profile...]`. A package outside the named profiles
+  is never a deviation, and naming a profile the file does not declare is
+  an error rather than silence.
+- **What is on this machine** — `goop export` / `goop import` /
+  `goop audit`, buckets and all, shaped after `scoop export`. Stale by
+  tomorrow, and deliberately not something to commit.
+
+**FR-11 is Partial, and the gap is deliberate.** A pin carries a version
+and a manifest digest, not a frozen URL and hash, so replaying it
+resolves the manifest through the bucket. The consequences, stated
+plainly:
+
+- A version withdrawn from every configured bucket can no longer be
+  reinstalled from the file alone. The old lockfile could, because it
+  carried the URL.
+- Nothing silently substitutes something else: FR-15 means a manifest
+  that changed under the same version number is reported, not installed
+  over.
+- Offline still works, because the download cache is keyed by content
+  hash and the bucket is a directory on disk — but the bucket has to be
+  there, where before it did not.
+
+This is what `scoop export`/`scoop import` do, for the same reason: a
+pinned URL is a fourth thing to keep true, and a stale one fails later
+and less clearly than a missing manifest.
+
+**FR-15 is what makes a version pin mean anything.** A version number is
+a claim by whoever published it; the digest fingerprints the manifest —
+URLs, artifact hashes, every install and uninstall script, shims,
+shortcuts, environment entries, and the per-architecture overrides of all
+of them. It is computed by re-encoding canonically rather than hashing
+the file, because the same bucket has CRLF when cloned by Git with
+`core.autocrlf=true` and LF when fetched as a zip, and goop uses both.
+`checkver` and `autoupdate` are excluded: they drive how a maintainer
+produces new versions and change nothing about installing a pinned one.
 
 ### 5.3 Buckets
 
@@ -335,8 +374,8 @@ been published or signed yet.
       ┌────────────────────┼────────────────────┐
       │                    │                    │
 ┌─────▼─────┐      ┌───────▼───────┐    ┌───────▼───────┐
-│  Buckets  │      │   Resolver    │    │   Lockfile    │
-│ git | zip │      │ manifests+dep │    │  read/write   │
+│  Buckets  │      │   Resolver    │    │ Pinned files  │
+│ git | zip │      │ manifests+dep │    │ profiles/setup│
 └─────┬─────┘      └───────┬───────┘    └───────────────┘
       └──────┬─────────────┘
              │
@@ -360,7 +399,9 @@ been published or signed yet.
 - Authentication is an **HTTP transport layer** keyed by host, never code
   inside the downloader. Manifests stay unchanged and cannot leak a
   credential.
-- The lockfile is produced by the resolver, never hand-written.
+- Pinned files are produced from install receipts, never from the
+  bucket: they describe what a machine actually ran, not what the
+  catalogue currently offers.
 - The shim knows nothing of buckets or the network: it reads a target
   path and executes.
 - The `pwsh` bridge is isolated; no business logic passes through it.
@@ -446,7 +487,7 @@ settled during implementation. All are recorded here.
 | # | Question | Resolution |
 |---|---|---|
 | D1 | Project name | **goop** — the `spm` placeholder is retired |
-| D2 | Lockfile format | **JSON**, stably ordered, diffable (FR-13) |
+| D2 | Pinned-file format | **JSON**, stably ordered, diffable (FR-13); profiles and machine captures are separate files with separate commands |
 | D3 | Version constraint grammar | Comparison operators (`@>=0.40`, `@1.8.2`) over Scoop's version ordering, extended to handle bare numeric builds |
 | D4 | Install directory | **Own root** (`~/goop`, overridable) plus an import path from an existing Scoop install (CPT-07) |
 | D5 | Signature mechanism | **minisign** — no PKI to operate, no third-party service, verifiable offline |
@@ -455,7 +496,7 @@ settled during implementation. All are recorded here.
 
 **D7's reasoning, since it will look like an omission otherwise.** goop
 exists to freeze toolchains. A binary that updates itself between two
-`goop sync` runs changes the engine interpreting your lockfiles without
+`goop sync` runs changes the engine interpreting your pins without
 being asked, possibly mid-build — which is precisely what `goop hold`
 prevents for packages. Applying a weaker rule to goop itself would be
 incoherent. Scoop behaves the same way and never updates unasked.
@@ -471,7 +512,7 @@ installer with itself would be.
 | **J0 — Shim** | Native shim alone | TR-20 to TR-26 validated | **Met** |
 | **J1 — Core** | Manifest decoding, download, hash, extraction, install/uninstall/list, Git buckets | 50 `main` manifests install | **Met** |
 | **J2 — Compatibility** | `pwsh` bridge, MSI/Inno/NSIS, `persist`, `env_*`, `shortcuts`, Scoop import | Harness ≥ 95 % on a representative manifest set | **Met** |
-| **J3 — Differentiation** | Lockfile, `sync`, parallelism, versioned dependencies, auth, Git-less buckets | A1–A4 measured and documented | **Met** |
+| **J3 — Differentiation** | Pinned profiles, `check`/`sync`, parallelism, versioned dependencies, auth, Git-less buckets | A1–A4 measured and documented | **Met** |
 | **J4 — Publication** | Signature, provenance, documentation, opening the code | Usable by a third party without assistance | **Partial** |
 
 **Imposed order: the shim before the resolver.** The most exposed
@@ -499,7 +540,7 @@ means building from a clone.
 | 5 | No regression on NR-01 to NR-07, verified point by point | **Partial** | NR-07 partial, see §2.1 |
 | 6 | A full CMake/Ninja build shows no duration regression | **Unverified** | Never measured |
 | 7 | An existing Scoop install imports without reinstalling packages | **Met** | Real migration performed |
-| 8 | CI fails with a dedicated exit code when state diverges from the lockfile | **Met** | Exit code 3 |
+| 8 | CI fails with a dedicated exit code when state diverges from what is pinned | **Met** | Exit code 3 |
 
 Criterion 2 is met with margin: the measured head-to-head gain is
 roughly **60×**, not the single order of magnitude specified. The

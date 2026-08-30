@@ -6,12 +6,83 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 goop is pre-1.0: the command surface and on-disk formats may still
 change between minor versions. Anything that would break an existing
-install or lockfile is called out explicitly under **Changed**.
+install or pinned file is called out explicitly under **Changed**.
 
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
 ## [Unreleased]
+
+### Changed
+
+- **Breaking: `lock`, `status` and the lockfile are gone**, replaced by
+  two planes that never touch. They had been one thing pretending to be
+  two: the `default` profile literally *was* `goop.lock.json`, so a soft
+  grouping of names was stored as, and indistinguishable from, a pinned
+  auditable artifact.
+
+  **What a project needs.** One JSON file, committed with the code,
+  holding any number of profiles:
+
+  ```json
+  {"profiles": {"chipA": {"packages": {
+    "cmake": {"version": "3.31.2", "hash": "sha256:9f2a…"}
+  }}}}
+  ```
+
+  - `goop check <file> [profile...]` — exit **3** on deviation. Reads
+    install receipts and nothing else: no bucket, no network, same answer
+    offline.
+  - `goop sync <file> [profile...]` — install what is missing or wrong.
+    Idempotent and needs no prior state; an empty machine and a drifted
+    one take the same path.
+  - `goop profile export --out <file> --profile <name>...` — the
+    maintainer's side, pinning from receipts rather than from the bucket:
+    the file describes what someone actually ran.
+  - `goop profile clone <file> <name>` — take a published profile as a
+    local, editable one.
+
+  Three rules decide the semantics. A package outside the named profiles
+  is **never** a deviation — the question is "does this machine have what
+  the project needs", not "is this machine clean". Naming a profile the
+  file does not declare is an **error**, because silence would read as
+  conformance. And syncing one profile never touches another.
+
+  A pin may also be a bare version string when the digest is not wanted.
+
+  **What is on this machine.** Nothing to do with any repository:
+
+  - `goop export [--out <file>]` — buckets *and* every installed package.
+  - `goop import <file>` — buckets first, then the packages; a list with
+    no catalogue to resolve it against is not a setup.
+  - `goop audit <file>` — exit **3** on any difference, reported in
+    **both** directions: what the capture has and this machine doesn't,
+    and what this machine has that the capture never mentioned.
+
+  Shaped after `scoop export`/`scoop import`, deliberately.
+
+- **Breaking: `goop import` changed meaning.** It replays a machine
+  capture. Adopting the packages of an existing Scoop install — what
+  `import` used to do — is now **`goop adopt`**.
+
+- **Breaking: `goop sync` changed meaning.** It takes a profile file and
+  makes this machine satisfy it. There is no `--file` flag any more: the
+  file is the argument.
+
+- Replaying a pin now resolves the manifest through the bucket instead of
+  installing from a frozen URL and hash. Stated plainly because it is a
+  real reduction: a version withdrawn from every bucket can no longer be
+  reinstalled from the file alone, and offline replay needs the bucket
+  directory present where before it did not. In exchange there is no
+  fourth field to keep true, and a manifest that changed under an
+  unchanged version number is *reported* rather than installed over. This
+  is what Scoop's own export/import do. Tracked as FR-11 **Partial** in
+  REQUIREMENTS.md rather than quietly marked met.
+
+- A profile is no longer a lockfile. It is a plain list of package names
+  with no versions, hashes or payload, kept in the order declared. Old
+  profile files are still read, and the default profile's membership is
+  recovered from the root lockfile, which is left untouched.
 
 ### Added
 
@@ -24,7 +95,8 @@ built from — quote it in bug reports.
   A manifest is executable content. An artifact hash says the payload is
   unchanged and nothing about a `post_install` edited since; the manifest
   digest covers both, because the artifact hash is itself part of the
-  manifest.
+  manifest. It is what lets `check` catch a version republished under the
+  same number.
 
   Computed by decoding and re-encoding canonically rather than hashing
   the file, so formatting cannot affect it — which matters concretely: a
@@ -33,12 +105,9 @@ built from — quote it in bug reports.
   `checkver` and `autoupdate` are excluded: they drive how a maintainer
   produces new versions and change nothing about installing a pinned one.
 
-- `goop lock --exclude <profile>` leaves a profile's packages out of the
-  lockfile. Useful for keeping a grouping out of the artifact CI installs
-  from; which grouping is the caller's decision, not goop's.
-
 - `goop profile show <name>` — what a profile contains, and which of its
-  members are installed.
+  members are installed. A name that does not exist is an error, not an
+  empty list.
 
 - An offline bundle, published with each release as
   `goop-<version>-offline.zip`: goop, its checksum and the installer,
@@ -50,18 +119,18 @@ built from — quote it in bug reports.
 ### Fixed
 
 - An install could report success while leaving a command that does not
-  work, and `goop status` would then call the machine conformant.
+  work, and goop would then call the machine conformant.
 
   Three things combined. `createShims` never checked that a `bin` entry's
   target existed, so a manifest that did not match its own archive
   produced a shim pointing at nothing. The install record is committed by
   the rename that makes a version visible, but shims are created after
   that — so a failure in between left a record claiming an install with no
-  working commands. And `Status` decided conformance from the record's
-  version alone, without opening a single file.
+  working commands. And conformance was decided from the record's version
+  alone, without opening a single file.
 
   Reproduced end to end before fixing: install green, `goop list` showing
-  the package, `goop status` reporting **in sync**, and the command
+  the package, the status command reporting **in sync**, and the command
   failing with "the system cannot find the file specified". A retry then
   reported `already installed` and did nothing, so one failure left a
   machine permanently mislabelled.
@@ -69,31 +138,20 @@ built from — quote it in bug reports.
   Now: a missing target fails the install before anything is written; the
   record carries `state: "pending"` until shims, shortcuts and
   environment entries exist, so a retry redoes the work instead of
-  trusting it; and `Status` checks the record state and every shim target
-  on disk, reporting *why* in a new column.
+  trusting it; and `check`/`audit` inspect the record state and every
+  shim target on disk, reporting *why*.
 
-### Changed
+- Exporting a pin whose source is a drive-letter `file://` URL warns
+  again. The check existed for `goop lock` and lost its only caller when
+  `lock` was removed — on files that are now *more* likely to travel, not
+  less. A UNC share resolves from any host that can reach it and stays
+  quiet.
 
-- **Breaking: a profile is no longer a lockfile.** They shared a format,
-  and the `default` profile literally *was* `goop.lock.json` — so a soft
-  grouping of names was stored as, and indistinguishable from, a pinned
-  auditable artifact.
+### Removed
 
-  A profile is now a plain list of package names, with no versions,
-  hashes or payload: `{"name": "baseline.tool", "apps": [...]}`, kept in
-  the order they were declared — for a profile of alternatives such as
-  `ide`, the first entry is the default. It is allowed to drift;
-  reproducibility is guaranteed by the lockfile alone.
-
-  `goop lock`, `goop sync` and `goop status` therefore take a lockfile
-  **path** only. `--as <profile>` and `--profile <name>` are gone;
-  `--file <path>` remains and defaults to the root lockfile.
-
-  Nothing is lost on upgrade. Old profile files are still read, and the
-  default profile's membership is recovered from the root lockfile —
-  which is left untouched, being a perfectly good lockfile that simply no
-  longer doubles as a profile. The new shape is written the next time a
-  profile changes.
+- `internal/lockfile`, which no longer had a single caller in the
+  product. Reading the legacy on-disk shape lives in `internal/profile`,
+  where the compatibility actually matters.
 
 ## [0.2.0] — 2026-08-29
 
