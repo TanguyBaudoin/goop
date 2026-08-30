@@ -11,9 +11,52 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
-## [Unreleased]
+## [0.3.1] — 2026-08-30
+
+Four defects, all reported from real use within hours of 0.3.0. One of
+them left `goop update` permanently stuck.
 
 ### Fixed
+
+- **`goop update` could get permanently stuck on a self-updating app.**
+  Reported from a real machine, on Zen Browser:
+
+      zen-browser 1.21.16b: previous install did not finish, redoing it
+      ✗ zen-browser: remove existing junction ...\current: exit status 145
+        The directory is not empty.
+
+  goop keeps `<app>\current` as a junction to a versioned directory, and
+  `relinkCurrent` removed it with `rmdir` — which on a junction drops the
+  link and leaves the target alone. Zen Browser's own updater replaces
+  that junction with a **real directory** and moves itself into it, and
+  `rmdir` refuses a real directory that is not empty. The install had
+  already committed its receipt by then, so it stayed `pending`, and
+  every later `goop update` redid the same work and hit the same wall.
+
+  `current` is now detached rather than deleted: it holds a real
+  installation, possibly with user data, and goop did not put it there.
+  It goes back to the version directory its own receipt names when that
+  is free — restoring the layout and losing nothing — and to a numbered
+  `current.detached-N` otherwise. Both paths say where it went.
+
+  Verified by reproducing the exact failure against the published 0.3.0
+  binary, then the repair: update succeeds, `current` is a reparse point
+  again, the command runs, and the old payload is still there.
+
+- **`goop sync <file> <profile>` registered packages into the active
+  profile instead of the one it was repairing.** On a new machine the
+  active profile is `default`, so syncing `chipA` filed chipA's packages
+  under `default` — emptying the very profile the sync was fixing.
+  `SyncProfiles` knows which profile each deviation belongs to and now
+  says so.
+
+- **`goop profile export` silently dropped the manifest digest** for any
+  package installed before goop recorded them, or adopted from Scoop. It
+  reported `✓ exported` and "should be green here" over a file that had
+  lost its only defence against a manifest republished under an unchanged
+  version number, and nothing said so. Version-only pins are still
+  written — weaker is not useless — but they are now counted and named,
+  with what to do about them.
 
 - `goop audit` and `goop import` no longer accept a profile file. One is
   valid JSON with no `apps`, so it decoded into an empty capture and
@@ -24,6 +67,18 @@ built from — quote it in bug reports.
 
   Found by exercising the published 0.3.0 binary rather than the local
   build, which is the only reason it was found at all.
+
+### Changed
+
+- **`default` is a fallback and now behaves like one.** Adding a package
+  to a named profile drops it from `default`: `default` is where things
+  land when nobody has said otherwise, so once someone does say
+  otherwise it has no claim left. Before this, `goop why` reported two
+  owners for a package with one, and a package stayed in `default` after
+  being deliberately filed elsewhere.
+
+  Two *named* profiles sharing a package still both list it — that is
+  what makes the uninstall safety net mean anything.
 
 ## [0.3.0] — 2026-08-30
 
@@ -324,7 +379,8 @@ status. The largest: installation is verified by hand rather than by an
 automated harness, the released binary is not Authenticode-signed so
 SmartScreen may warn on first run, and goop has a single maintainer.
 
-[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.3.1
 [0.3.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.3.0
 [0.2.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.2.0
 [0.1.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.1.0
