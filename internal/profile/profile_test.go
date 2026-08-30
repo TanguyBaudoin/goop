@@ -73,10 +73,13 @@ func TestAddRemove_RoundTrip(t *testing.T) {
 func TestContainingProfiles_MultipleProfiles(t *testing.T) {
 	withTempRoot(t)
 
-	if err := Add(Default, "jq"); err != nil {
+	// Two named profiles genuinely sharing a package: both must report
+	// it, because that is what makes the uninstall safety net mean
+	// something.
+	if err := Add("projectA", "jq"); err != nil {
 		t.Fatal(err)
 	}
-	if err := Add("projectA", "jq"); err != nil {
+	if err := Add("projectB", "jq"); err != nil {
 		t.Fatal(err)
 	}
 	if err := Add("projectB", "ripgrep"); err != nil {
@@ -88,7 +91,41 @@ func TestContainingProfiles_MultipleProfiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(containing) != 2 {
-		t.Fatalf("ContainingProfiles(jq) = %v, want 2 entries (default, projectA)", containing)
+		t.Fatalf("ContainingProfiles(jq) = %v, want [projectA projectB]", containing)
+	}
+}
+
+// `default` is where a package lands when nobody has said otherwise.
+// Once someone does say otherwise, it has no claim left -- otherwise
+// `goop why` reports two owners for a package with one, and the app stays
+// in `default` after being deliberately filed elsewhere.
+func TestAdd_NamedProfileTakesOverFromDefault(t *testing.T) {
+	withTempRoot(t)
+
+	if err := Add(Default, "jq"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := ContainingProfiles("jq"); len(got) != 1 || got[0] != Default {
+		t.Fatalf("before: %v, want [default]", got)
+	}
+
+	if err := Add("chipA", "jq"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ContainingProfiles("jq")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "chipA" {
+		t.Errorf("after: %v, want [chipA] -- default must have let go", got)
+	}
+
+	// Adding to default itself still works and does not remove anything.
+	if err := Add(Default, "ripgrep"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := ContainingProfiles("ripgrep"); len(got) != 1 || got[0] != Default {
+		t.Errorf("ripgrep = %v, want [default]", got)
 	}
 }
 

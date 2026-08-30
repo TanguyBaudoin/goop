@@ -172,7 +172,27 @@ func List() ([]string, error) {
 var profileMu sync.Mutex
 
 // Add registers appName as a member of profileName. Idempotent.
+//
+// Adding to a named profile drops the app from `default`. `default` is
+// where things land when nobody has said otherwise, so once someone does
+// say otherwise it has no claim left -- and leaving it there made
+// `goop why` report two owners for a package with one, and left the app
+// behind in `default` after it had been deliberately filed elsewhere.
+//
+// Removing from `default` is not the same as removing from any other
+// profile: a package genuinely shared by two named profiles stays in
+// both, which is what makes the uninstall safety net meaningful.
 func Add(profileName, appName string) error {
+	if err := addOne(profileName, appName); err != nil {
+		return err
+	}
+	if profileName != Default {
+		return Remove(Default, appName)
+	}
+	return nil
+}
+
+func addOne(profileName, appName string) error {
 	profileMu.Lock()
 	defer profileMu.Unlock()
 
