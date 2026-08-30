@@ -25,7 +25,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/TanguyBaudoin/goop/internal/index"
 	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
@@ -38,11 +37,6 @@ const Default = "default"
 type Definition struct {
 	Name string   `json:"name"`
 	Apps []string `json:"apps"`
-
-	// Source is where this definition came from: "local" for a file on
-	// this machine, "index" for one published by the team. Not stored --
-	// it is a property of the lookup, not of the file.
-	Source string `json:"-"`
 }
 
 // Path is where profile's definition lives. Every profile, default
@@ -73,16 +67,10 @@ func Load(name string) (Definition, error) {
 	}
 	data, err := os.ReadFile(Path(name))
 	if os.IsNotExist(err) {
-		// No local file: fall back to the published index. A local
-		// definition always wins, so a machine can diverge on purpose
-		// without the index overwriting that choice.
-		if apps, ok := index.Apps(name); ok {
-			return Definition{Name: name, Apps: apps, Source: "index"}, nil
-		}
 		if name == Default {
 			return loadLegacyDefault()
 		}
-		return Definition{Name: name, Source: "local"}, nil
+		return Definition{Name: name}, nil
 	}
 	if err != nil {
 		return Definition{}, fmt.Errorf("read profile %q: %w", name, err)
@@ -112,7 +100,6 @@ func decodeDefinition(name string, data []byte) (Definition, error) {
 		}
 	}
 	d.Name = name // the filename is authoritative
-	d.Source = "local"
 	return d, nil
 }
 
@@ -160,13 +147,6 @@ func Save(d Definition) error {
 // included even before anything has been added to it.
 func List() ([]string, error) {
 	names := map[string]bool{Default: true}
-
-	// Index-defined profiles are real profiles even with no local file;
-	// leaving them out would make the team's baseline invisible until
-	// someone happened to install from it.
-	for _, name := range index.Names() {
-		names[name] = true
-	}
 
 	entries, err := os.ReadDir(profilesDir())
 	if err != nil && !os.IsNotExist(err) {
@@ -321,21 +301,4 @@ func Use(name string) error {
 		return err
 	}
 	return os.WriteFile(activeFilePath(), data, 0o644)
-}
-
-// RemoveLocal drops appName from profileName only when that profile is
-// defined on this machine. A profile that comes from the index is left
-// alone.
-//
-// This is what uninstall uses. Editing an index-defined profile forks it
-// locally, and an uninstall must not do that as a side effect: removing
-// one package would silently detach the machine from the team's whole
-// baseline, and the profile would then be an empty local file shadowing
-// it. Deliberately editing such a profile is still possible through
-// `goop profile remove`, which says what it is doing.
-func RemoveLocal(profileName, appName string) error {
-	if _, err := os.Stat(Path(profileName)); err != nil {
-		return nil // index-defined or absent: nothing local to edit
-	}
-	return Remove(profileName, appName)
 }

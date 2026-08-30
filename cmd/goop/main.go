@@ -18,7 +18,6 @@ import (
 	"github.com/TanguyBaudoin/goop/internal/bucket"
 	"github.com/TanguyBaudoin/goop/internal/credstore"
 	"github.com/TanguyBaudoin/goop/internal/downloader"
-	"github.com/TanguyBaudoin/goop/internal/index"
 	"github.com/TanguyBaudoin/goop/internal/installer"
 	"github.com/TanguyBaudoin/goop/internal/lockfile"
 	"github.com/TanguyBaudoin/goop/internal/manifest"
@@ -129,8 +128,6 @@ func run(args []string) int {
 	// Keep topLevelCommands (completion.go) in sync with the cases below --
 	// it's what `goop <tab>` offers.
 	switch args[0] {
-	case "bootstrap":
-		return cmdBootstrap(args[1:])
 	case "install":
 		return cmdInstall(args[1:])
 	case "uninstall":
@@ -181,8 +178,6 @@ func run(args []string) int {
 		return cmdConfig(args[1:])
 	case "migrate":
 		return cmdMigrate(args[1:])
-	case "index":
-		return cmdIndex(args[1:])
 	case "completion":
 		return cmdCompletion(args[1:])
 	case "self-update":
@@ -212,11 +207,6 @@ func printUsage() {
 		}
 		fmt.Fprintf(os.Stderr, "  %-46s %s\n", usage, ui.Dim(desc))
 	}
-
-	section("projects")
-	cmd("goop bootstrap", "bring this machine in line with the repo's goop.json: profiles, then its lockfile")
-	cmd("", "idempotent -- same command on day one and after a git pull; won't reinstall what you removed")
-	fmt.Fprintln(os.Stderr)
 
 	section("install & remove")
 	cmd("goop install <spec>... [--no-update]", "spec: [bucket/]name[@constraint], e.g. jq, extras/mpv, jq@1.8.2")
@@ -268,17 +258,12 @@ func printUsage() {
 	section("profiles")
 	cmd("goop profile use <name>", "switch the active profile (like conda activate); installs register into it")
 	cmd("goop profile list", "* marks the active one; MEMBERS is how many apps each profile references")
-	cmd("goop profile show <name>", "what it contains, whether from the index or this machine, and what is installed")
+	cmd("goop profile show <name>", "what it contains, and which of its members are installed")
 	cmd("goop profile add <name> <app>...", "declare app(s) as members without installing them")
 	cmd("goop profile remove <name> <app>...", "un-declare, without uninstalling")
 	cmd("goop profile reset", "merge all profiles into default, delete named profiles, reset active")
 	cmd("goop why <name>", "which profile(s) reference name")
-	fmt.Fprintln(os.Stderr)
 
-	section("profile index")
-	cmd("goop config set-index <url>", "where profile definitions are published -- http(s) or file:// alike")
-	cmd("goop index update", "fetch it; the last good copy is cached and used when the network is not there")
-	cmd("", "a profile defined locally always wins over the index, so a machine can diverge on purpose")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("A profile is a named group of app names, not an isolated environment -- installs stay global/shared."))
 	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Every `goop install` registers into whichever profile is active (default: \"default\")."))
@@ -610,7 +595,6 @@ func cmdProfile(args []string) int {
 			fmt.Fprintln(os.Stderr, "usage: goop profile add <name> <app>...")
 			return 2
 		}
-		warnForkingIndexProfile(args[1])
 		exit := 0
 		for _, app := range args[2:] {
 			// A profile may list an app that isn't installed yet (that's
@@ -635,7 +619,6 @@ func cmdProfile(args []string) int {
 			fmt.Fprintln(os.Stderr, "usage: goop profile remove <name> <app>...")
 			return 2
 		}
-		warnForkingIndexProfile(args[1])
 		exit := 0
 		for _, app := range args[2:] {
 			// Removal is idempotent underneath, which made a typo look
@@ -683,11 +666,7 @@ func cmdProfile(args []string) int {
 			ui.Fail("profile show: %v", err)
 			return 1
 		}
-		origin := "defined on this machine"
-		if d.Source == "index" {
-			origin = "from the published index"
-		}
-		fmt.Printf("%s  %s\n", ui.Bold(d.Name), ui.Dim("("+origin+")"))
+		fmt.Println(ui.Bold(d.Name))
 		if len(d.Apps) == 0 {
 			fmt.Println(ui.Dim("  no members"))
 			return 0
@@ -2162,34 +2141,6 @@ func cmdConfig(args []string) int {
 			fmt.Println(ui.Dim("no-proxy: " + strings.Join(noProxy, ", ")))
 		}
 		return 0
-	case "get-index":
-		if url, ok := paths.ConfiguredIndex(); ok {
-			fmt.Println(url)
-			d := index.Load()
-			fmt.Println(ui.Dim(fmt.Sprintf("  %d profile(s) cached in %s", len(d.Profiles), paths.IndexCache())))
-		} else {
-			fmt.Println(ui.Dim("no profile index configured"))
-		}
-		return 0
-	case "set-index":
-		if len(args) != 2 {
-			fmt.Fprintln(os.Stderr, "usage: goop config set-index <url>")
-			return 2
-		}
-		if err := paths.SetConfiguredIndex(args[1]); err != nil {
-			ui.Fail("config set-index: %v", err)
-			return 1
-		}
-		ui.Ok("profile index set to %s", args[1])
-		fmt.Println(ui.Dim("Run `goop index update` to fetch it."))
-		return 0
-	case "unset-index":
-		if err := paths.UnsetConfiguredIndex(); err != nil {
-			ui.Fail("config unset-index: %v", err)
-			return 1
-		}
-		ui.Ok("profile index unset")
-		return 0
 	case "set-proxy":
 		if len(args) != 2 {
 			fmt.Fprintln(os.Stderr, "usage: goop config set-proxy <url>")
@@ -2237,42 +2188,4 @@ func cmdConfig(args []string) int {
 		fmt.Fprintln(os.Stderr, configUsage)
 		return 2
 	}
-}
-
-func cmdIndex(args []string) int {
-	if len(args) != 1 || args[0] != "update" {
-		fmt.Fprintln(os.Stderr, "usage: goop index update")
-		fmt.Fprintln(os.Stderr, ui.Dim("  set the URL first with `goop config set-index <url>`"))
-		return 2
-	}
-	d, err := index.Update()
-	if err != nil {
-		ui.Fail("index update: %v", err)
-		// The cache is deliberately left alone, so a failed refresh does
-		// not take a working machine offline.
-		if cached := index.Load(); len(cached.Profiles) > 0 {
-			fmt.Println(ui.Dim(fmt.Sprintf("still using the cached index (%d profiles)", len(cached.Profiles))))
-		}
-		return 1
-	}
-	ui.Ok("index updated: %d profile(s)", len(d.Profiles))
-	for _, name := range index.Names() {
-		apps, _ := index.Apps(name)
-		fmt.Printf("  %-20s %s\n", name, ui.Dim(strings.Join(apps, ", ")))
-	}
-	return 0
-}
-
-// warnForkingIndexProfile says so when editing a profile that currently
-// comes from the index. The edit copies it to this machine, and a local
-// definition always wins -- so from then on the team's changes to that
-// profile stop arriving. That is a legitimate thing to want, but not
-// something to discover months later.
-func warnForkingIndexProfile(name string) {
-	d, err := profile.Load(name)
-	if err != nil || d.Source != "index" {
-		return
-	}
-	ui.Warn("%q currently comes from the published index; editing it makes a local copy", name)
-	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("This machine will stop picking up the team's changes to it. Delete "+profile.Path(name)+" to go back."))
 }

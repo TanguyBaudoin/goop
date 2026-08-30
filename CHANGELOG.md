@@ -19,55 +19,8 @@ built from — quote it in bug reports.
   lockfile. Useful for keeping a grouping out of the artifact CI installs
   from; which grouping is the caller's decision, not goop's.
 
-- **`goop bootstrap`** — one idempotent command for day one and for every
-  `git pull` after it. A repository declares what it needs in
-  `goop.json`:
-
-  ```json
-  {"lockfile": "goop.lock.json", "profiles": ["baseline.tool", "ide"]}
-  ```
-
-  The repository states its *intent*; the index says what those profiles
-  contain. bootstrap refreshes the index, applies the profiles, then
-  syncs the lockfile — the toolchain last, because it is what the build
-  actually needs. It finds `goop.json` by walking up, so running it from
-  a subdirectory works.
-
-  It remembers what it installed, so a package you removed on purpose is
-  not quietly put back on the next run — it says it is leaving it out
-  instead. Running it twice in a row does nothing the second time.
-
-  It asks nothing and knows nothing about what a profile means: every
-  profile is applied the same way. Which groupings a repository wants,
-  and what they contain, is the caller's business.
-
-- **A profile index.** What profiles *contain* can now be published by a
-  team rather than defined on each machine or committed into every
-  repository — so adding a tool to `baseline.tool` does not mean a commit
-  per repo.
-
-  ```powershell
-  goop config set-index file://fileserver/goop/index.json
-  goop index update
-  ```
-
-  The document is one JSON object:
-  `{"profiles": {"baseline.tool": ["git", "graphviz", "srecord"]}}`.
-  It is fetched through goop's own downloader, so per-host auth, the
-  configured proxy and `file://` all apply — an internal HTTP server and
-  a network share are configured identically, and neither needs git.
-
-  The last good copy is cached, so a machine that cannot reach the index
-  keeps resolving profiles, and a publish that produces invalid JSON is
-  reported without replacing a working cache.
-
-  A profile defined locally always wins over the index, so a machine can
-  diverge deliberately. Editing an index-defined profile copies it here
-  and says so — that machine stops receiving the team's changes to it,
-  which is worth knowing at the time rather than months later.
-
-- `goop profile show <name>` — what a profile contains, whether it came
-  from the index or this machine, and which members are installed.
+- `goop profile show <name>` — what a profile contains, and which of its
+  members are installed.
 
 - An offline bundle, published with each release as
   `goop-<version>-offline.zip`: goop, its checksum and the installer,

@@ -55,10 +55,6 @@ type config struct {
 	Root    string   `json:"root,omitempty"`
 	Proxy   string   `json:"proxy,omitempty"`
 	NoProxy []string `json:"no_proxy,omitempty"`
-
-	// Index is the URL of the profile index -- what profiles contain,
-	// published by a team rather than shipped with goop.
-	Index string `json:"index,omitempty"`
 	// CacheLimit caps the download cache, in bytes. A pointer so the
 	// three states stay distinct in JSON: absent (unlimited, the
 	// default), 0 (keep nothing), or a real ceiling. Downloads are big
@@ -257,39 +253,6 @@ func SetConfiguredProxy(proxyURL string) error {
 func UnsetConfiguredProxy() error {
 	return updateConfig(func(c *config) { c.Proxy = "" })
 }
-
-// ConfiguredIndex returns the URL of the profile index, if one is set.
-// The index says what profiles *contain*; buckets say how to install each
-// package. Keeping them apart is deliberate: a bucket is a catalogue,
-// published for anyone to consume, while the index is one team's
-// configuration.
-func ConfiguredIndex() (string, bool) {
-	c, err := loadConfig()
-	if err != nil || c.Index == "" {
-		return "", false
-	}
-	return c.Index, true
-}
-
-// SetConfiguredIndex persists the index URL. Any scheme goop's downloader
-// understands works, which includes file:// -- so an internal HTTP server
-// and a network share are configured the same way.
-func SetConfiguredIndex(indexURL string) error {
-	if _, err := url.Parse(indexURL); err != nil {
-		return fmt.Errorf("invalid index URL %q: %w", indexURL, err)
-	}
-	return updateConfig(func(c *config) { c.Index = indexURL })
-}
-
-// UnsetConfiguredIndex removes the persisted index URL.
-func UnsetConfiguredIndex() error {
-	return updateConfig(func(c *config) { c.Index = "" })
-}
-
-// IndexCache is where the last successfully fetched index is kept, so a
-// machine with no network still resolves profiles -- same policy as
-// buckets, which are equally usable offline once fetched.
-func IndexCache() string { return filepath.Join(Root(), "index.json") }
 
 // ConfiguredNoProxy returns the hosts/domains that bypass the persisted
 // proxy (SetConfiguredNoProxy), if any.

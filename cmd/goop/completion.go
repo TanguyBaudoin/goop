@@ -20,9 +20,9 @@ import (
 // time (%s placeholder) rather than hardcoding a second copy that could
 // drift from run()'s switch in main.go.
 var topLevelCommands = []string{
-	"bootstrap", "install", "uninstall", "update", "list", "info", "search", "depends", "cleanup", "download", "reset", "hold", "unhold", "cache", "bucket", "maven-repo",
+	"install", "uninstall", "update", "list", "info", "search", "depends", "cleanup", "download", "reset", "hold", "unhold", "cache", "bucket", "maven-repo",
 	"import", "migrate", "lock", "sync", "status", "profile", "why", "auth", "verify",
-	"config", "completion", "index", "self-update", "version", "help",
+	"config", "completion", "self-update", "version", "help",
 }
 
 const completionUsage = "usage: goop completion <powershell|bash> [--install]"
