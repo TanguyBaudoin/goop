@@ -221,11 +221,26 @@ func lockInstall(appName string) func() {
 // this function), so a profile's membership reflects what was actually
 // asked for, not everything transitively required to satisfy it.
 func Install(spec string) (Record, error) {
+	return InstallInto(spec, profile.Active())
+}
+
+// InstallInto is Install, registering into a named profile instead of the
+// active one.
+//
+// `goop sync <file> chipA` knows which profile it is repairing, and the
+// active profile is usually something else entirely -- on a new machine
+// it is `default`. Registering there put a package the file assigns to
+// chipA into default instead, so re-syncing a profile silently emptied
+// it. The caller that knows the answer has to be able to say so.
+func InstallInto(spec, profileName string) (Record, error) {
 	rec, err := installSpec(spec, nil, false)
 	if err != nil {
 		return Record{}, err
 	}
-	if err := profile.Add(profile.Active(), rec.Name); err != nil {
+	if profileName == "" {
+		profileName = profile.Active()
+	}
+	if err := profile.Add(profileName, rec.Name); err != nil {
 		Logf("%s: profile registration: %v", rec.Name, err) // non-fatal: same tier as shortcuts, the app is installed and usable either way
 	}
 	return rec, nil

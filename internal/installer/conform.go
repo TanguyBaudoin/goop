@@ -103,7 +103,10 @@ func SyncProfiles(f profileset.File, names []string) ([]Deviation, map[string]er
 		if d.Want != "" {
 			spec = d.Package + "@" + d.Want
 		}
-		if _, err := Install(spec); err != nil {
+		// Register into the profile being repaired, not the active one.
+		// A machine syncing chipA usually has `default` active, and
+		// registering there emptied the very profile the sync was fixing.
+		if _, err := InstallInto(spec, d.Profile); err != nil {
 			errs[d.Package] = err
 			continue
 		}
