@@ -236,19 +236,45 @@ func TestExportProfiles_RefusesToInventPins(t *testing.T) {
 	fakeInstall(t, Record{Name: "half", Version: "1.0", State: "pending"})
 
 	members := func(string) ([]string, error) { return []string{"jq", "half", "absent"}, nil }
-	f, missing, err := ExportProfiles([]string{"chipa"}, members)
+	rep, err := ExportProfiles([]string{"chipa"}, members)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pin := f.Profiles["chipa"].Packages["jq"]
+	pin := rep.File.Profiles["chipa"].Packages["jq"]
 	if pin.Version != "1.8.2" || pin.Hash != "sha256:aa" {
 		t.Errorf("jq pin = %+v", pin)
 	}
-	if len(f.Profiles["chipa"].Packages) != 1 {
-		t.Errorf("only installed members may be pinned, got %+v", f.Profiles["chipa"].Packages)
+	if len(rep.File.Profiles["chipa"].Packages) != 1 {
+		t.Errorf("only installed members may be pinned, got %+v", rep.File.Profiles["chipa"].Packages)
 	}
 	want := []string{"chipa/absent", "chipa/half"}
-	if len(missing) != 2 || missing[0] != want[0] || missing[1] != want[1] {
-		t.Errorf("missing = %v, want %v", missing, want)
+	if len(rep.Missing) != 2 || rep.Missing[0] != want[0] || rep.Missing[1] != want[1] {
+		t.Errorf("missing = %v, want %v", rep.Missing, want)
+	}
+}
+
+// A package installed before goop recorded digests, or adopted from
+// Scoop, pins a version and nothing else. Exporting it silently produced
+// a file whose maintainer had no way to know it had lost its only defence
+// against a manifest republished under the same version number.
+func TestExportProfiles_ReportsPinsWithNoDigest(t *testing.T) {
+	isolateRoot(t)
+	fakeInstall(t, Record{Name: "jq", Version: "1.8.2", State: "ready", ManifestDigest: "sha256:aa"})
+	fakeInstall(t, Record{Name: "gsudo", Version: "2.6.1", State: "ready"}) // installed by an older goop
+
+	members := func(string) ([]string, error) { return []string{"jq", "gsudo"}, nil }
+	rep, err := ExportProfiles([]string{"chipa"}, members)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Pinned != 2 {
+		t.Errorf("Pinned = %d, want 2", rep.Pinned)
+	}
+	if len(rep.Undigested) != 1 || rep.Undigested[0] != "chipa/gsudo" {
+		t.Fatalf("Undigested = %v, want [chipa/gsudo]", rep.Undigested)
+	}
+	// It is still exported -- a version-only pin is weaker, not useless.
+	if got := rep.File.Profiles["chipa"].Packages["gsudo"]; got.Version != "2.6.1" || got.Hash != "" {
+		t.Errorf("gsudo pin = %+v", got)
 	}
 }

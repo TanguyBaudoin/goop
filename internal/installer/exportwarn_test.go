@@ -42,7 +42,7 @@ func TestExport_WarnsOnMachineLocalSource(t *testing.T) {
 			lines := captureLog(t)
 
 			members := func(string) ([]string, error) { return []string{"jdk"}, nil }
-			if _, _, err := ExportProfiles([]string{"chipa"}, members); err != nil {
+			if _, err := ExportProfiles([]string{"chipa"}, members); err != nil {
 				t.Fatal(err)
 			}
 

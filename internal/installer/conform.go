@@ -133,6 +133,18 @@ func VerifyPins(f profileset.File, names []string) ([]Deviation, error) {
 	return out, nil
 }
 
+// ExportReport is what an export produced and what it could not.
+//
+// Undigested is the part a maintainer has to see: those pins carry a
+// version and no manifest digest, so the file they are about to commit
+// cannot detect a manifest republished under the same version number.
+type ExportReport struct {
+	File       profileset.File
+	Pinned     int
+	Missing    []string // member not installed, or its install did not finish
+	Undigested []string // pinned, but with no manifest digest to pin to
+}
+
 // ExportProfiles turns local profiles into a profile file, pinning each
 // member to the version and manifest digest actually installed.
 //
@@ -142,14 +154,15 @@ func VerifyPins(f profileset.File, names []string) ([]Deviation, error) {
 // pin nobody has ever run.
 //
 // A member that is not installed is refused rather than guessed at.
-func ExportProfiles(names []string, members func(string) ([]string, error)) (profileset.File, []string, error) {
+func ExportProfiles(names []string, members func(string) ([]string, error)) (ExportReport, error) {
 	out := profileset.File{Profiles: map[string]profileset.Profile{}}
-	var missing []string
+	var missing, undigested []string
+	pinned := 0
 
 	for _, name := range names {
 		apps, err := members(name)
 		if err != nil {
-			return profileset.File{}, nil, err
+			return ExportReport{}, err
 		}
 		prof := profileset.Profile{Packages: map[string]profileset.Pin{}}
 		for _, app := range apps {
@@ -158,11 +171,22 @@ func ExportProfiles(names []string, members func(string) ([]string, error)) (pro
 				missing = append(missing, name+"/"+app)
 				continue
 			}
+			pinned++
 			warnMachineLocalSource(rec)
+			// A pin with no digest is a version number and nothing more:
+			// it cannot tell a republished manifest from the one that was
+			// installed. Packages installed by goop before digests
+			// existed, or adopted from Scoop, have none -- and exporting
+			// them silently produced a weaker file whose maintainer had
+			// no way to know.
+			if rec.ManifestDigest == "" {
+				undigested = append(undigested, name+"/"+app)
+			}
 			prof.Packages[app] = profileset.Pin{Version: rec.Version, Hash: rec.ManifestDigest}
 		}
 		out.Profiles[name] = prof
 	}
 	sort.Strings(missing)
-	return out, missing, nil
+	sort.Strings(undigested)
+	return ExportReport{File: out, Pinned: pinned, Missing: missing, Undigested: undigested}, nil
 }

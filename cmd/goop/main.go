@@ -522,7 +522,7 @@ func cmdProfile(args []string) int {
 			fmt.Fprintln(os.Stderr, "usage: goop profile export --out <file> --profile <name>...")
 			return 2
 		}
-		f, missing, err := installer.ExportProfiles(wanted, func(n string) ([]string, error) {
+		rep, err := installer.ExportProfiles(wanted, func(n string) ([]string, error) {
 			d, err := profile.Load(n)
 			return d.Apps, err
 		})
@@ -530,21 +530,28 @@ func cmdProfile(args []string) int {
 			ui.Fail("profile export: %v", err)
 			return 1
 		}
-		if len(missing) > 0 {
+		if len(rep.Missing) > 0 {
 			// Guessing a version from the bucket would publish a pin
 			// nobody has ever run.
-			ui.Fail("profile export: not installed here, so there is nothing to pin: %s", strings.Join(missing, ", "))
+			ui.Fail("profile export: not installed here, so there is nothing to pin: %s", strings.Join(rep.Missing, ", "))
 			return 1
 		}
-		if err := profileset.Save(out, f); err != nil {
+		if err := profileset.Save(out, rep.File); err != nil {
 			ui.Fail("profile export: %v", err)
 			return 1
 		}
-		n := 0
-		for _, p := range f.Profiles {
-			n += len(p.Packages)
+		ui.Ok("exported %d profile(s), %d package(s) to %s", len(rep.File.Profiles), rep.Pinned, out)
+		// A pin with no digest is a version number and nothing more. The
+		// maintainer is about to commit this file, so the weakness has to
+		// be visible here rather than discovered by whoever trusts it.
+		if len(rep.Undigested) > 0 {
+			ui.Warn("%d of %d pin(s) carry no manifest digest: %s",
+				len(rep.Undigested), rep.Pinned, strings.Join(rep.Undigested, ", "))
+			fmt.Println(ui.Dim("  those were installed before goop recorded digests (or adopted from Scoop)."))
+			fmt.Println(ui.Dim("  they pin a version only, so a manifest republished under the same"))
+			fmt.Println(ui.Dim("  version number will not be detected. `goop update <name>` re-installs"))
+			fmt.Println(ui.Dim("  and records one; re-export afterwards."))
 		}
-		ui.Ok("exported %d profile(s), %d package(s) to %s", len(f.Profiles), n, out)
 		fmt.Println(ui.Dim("  commit it with the code; `goop check " + out + "` should be green here"))
 		return 0
 	case "clone":
