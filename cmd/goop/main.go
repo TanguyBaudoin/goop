@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,12 +20,13 @@ import (
 	"github.com/TanguyBaudoin/goop/internal/credstore"
 	"github.com/TanguyBaudoin/goop/internal/downloader"
 	"github.com/TanguyBaudoin/goop/internal/installer"
-	"github.com/TanguyBaudoin/goop/internal/lockfile"
 	"github.com/TanguyBaudoin/goop/internal/manifest"
 	"github.com/TanguyBaudoin/goop/internal/mavenrepo"
 	"github.com/TanguyBaudoin/goop/internal/minisign"
 	"github.com/TanguyBaudoin/goop/internal/paths"
 	"github.com/TanguyBaudoin/goop/internal/profile"
+	"github.com/TanguyBaudoin/goop/internal/profileset"
+	"github.com/TanguyBaudoin/goop/internal/setup"
 	"github.com/TanguyBaudoin/goop/internal/ui"
 )
 
@@ -159,13 +161,17 @@ func run(args []string) int {
 	case "maven-repo":
 		return cmdMavenRepo(args[1:])
 	case "import":
+		return cmdImportSetup(args[1:])
+	case "adopt":
 		return cmdImport(args[1:])
-	case "lock":
-		return cmdLock(args[1:])
+	case "export":
+		return cmdExport(args[1:])
+	case "audit":
+		return cmdAudit(args[1:])
+	case "check":
+		return cmdCheck(args[1:])
 	case "sync":
-		return cmdSync(args[1:])
-	case "status":
-		return cmdStatus(args[1:])
+		return cmdSyncProfiles(args[1:])
 	case "profile":
 		return cmdProfile(args[1:])
 	case "why":
@@ -243,7 +249,6 @@ func printUsage() {
 	cmd("goop bucket priority <name> <n>", "n=1 is searched first, so it wins when several buckets carry the same app")
 	cmd("goop bucket list", "")
 	cmd("goop bucket update [name]", "")
-	cmd("goop import [name]...", "link an existing Scoop install into goop; still depends on Scoop staying installed")
 	cmd("goop migrate [--dry-run]", "copy every Scoop bucket + app into goop, independent of Scoop (safe to uninstall it after)")
 	fmt.Fprintln(os.Stderr)
 
@@ -269,13 +274,19 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Every `goop install` registers into whichever profile is active (default: \"default\")."))
 	fmt.Fprintln(os.Stderr)
 
-	section("reproducibility")
-	cmd("goop lock [--file <path>] [--exclude <profile>]...", "freeze installed packages with versions and hashes (FR-10)")
-	cmd("", "--file writes the lockfile wherever you want -- keep it in the project repo it pins, like Cargo.lock")
-	cmd("goop sync [--file <path>]", "install exactly that state, no bucket resolution (FR-11)")
-	cmd("", "a pinned entry installs from its frozen version/URL/hash -- how you go back to an older baseline")
-	cmd("goop status [--file <path>]", "report drift; exit 3 if any, with the reason (FR-12)")
-	cmd("", "--exclude <profile> leaves that profile's packages out; policy is yours, goop just applies it")
+	section("profiles -- what a repository needs")
+	cmd("goop check <file> [profile...]", "compare this machine to the profiles a file declares; exit 3 on deviation")
+	cmd("", "reads receipts only -- no bucket, no network. A package outside the profile is never a deviation")
+	cmd("goop sync <file> [profile...]", "install what the file requires and is missing; idempotent, no prior state needed")
+	cmd("goop profile export --out <file> --profile <name>...", "maintainer: pin local profiles to a file, versions and manifest digests from receipts")
+	cmd("goop profile clone <file> <name>", "take a profile from a file as a local, editable one")
+	fmt.Fprintln(os.Stderr)
+
+	section("whole machine")
+	cmd("goop export [--out <file>]", "capture this machine: its buckets and every installed package")
+	cmd("goop import <file>", "replay a capture: configure its buckets, then install its packages")
+	cmd("goop audit <file>", "compare this machine to a capture; exit 3 on any difference, either way")
+	cmd("goop adopt [name]...", "adopt apps installed by a real Scoop, without touching Scoop's own files")
 	fmt.Fprintln(os.Stderr)
 
 	section("auth")
@@ -373,177 +384,6 @@ func cmdVerify(args []string) int {
 	return 0
 }
 
-// parseFileFlag parses an optional "--file <path>" from args, falling
-// back to the root lockfile. A lockfile is always a path now: profiles
-// no longer double as one, which is what let a soft grouping be mistaken
-// for a pinned artifact.
-func parseFileFlag(args []string) (string, bool) {
-	if len(args) == 0 {
-		return lockfile.Path(), true
-	}
-	if len(args) == 2 && args[0] == "--file" {
-		return args[1], true
-	}
-	return "", false
-}
-
-func cmdLock(args []string) int {
-	var exclude []string
-	rest := args
-	for i := 0; i+1 < len(rest); {
-		if rest[i] == "--exclude" {
-			exclude = append(exclude, rest[i+1])
-			rest = append(append([]string{}, rest[:i]...), rest[i+2:]...)
-			continue
-		}
-		i++
-	}
-	path, ok := parseFileFlag(rest)
-	if !ok {
-		fmt.Fprintln(os.Stderr, "usage: goop lock [--file <path>] [--exclude <profile>]...")
-		return 2
-	}
-	f, skipped, err := installer.Lock(path, membersOf(exclude))
-	if err != nil {
-		ui.Fail("lock: %v", err)
-		return 1
-	}
-	ui.Ok("locked %d package(s) to %s", len(f.Entries), path)
-	if len(skipped) > 0 {
-		fmt.Println(ui.Dim(fmt.Sprintf("  left out %s (excluded profile)", strings.Join(skipped, ", "))))
-	}
-	warnMachineLocalSources(f)
-	return 0
-}
-
-// membersOf collects the packages belonging to the named profiles, for
-// `goop lock --exclude`.
-//
-// Which profiles to leave out of a lockfile is a policy, and policy
-// belongs to whoever is using goop. A team that wants no editors in the
-// artifact its CI installs from passes --exclude ide; goop supplies the
-// mechanism and holds no opinion about what an editor is.
-func membersOf(names []string) map[string]bool {
-	if len(names) == 0 {
-		return nil
-	}
-	out := map[string]bool{}
-	for _, n := range names {
-		d, err := profile.Load(n)
-		if err != nil {
-			continue
-		}
-		for _, a := range d.Apps {
-			out[a] = true
-		}
-	}
-	return out
-}
-
-// warnMachineLocalSources flags locked entries whose source only exists
-// on this machine. A drive-letter file:// URL resolves nowhere else, so
-// the lockfile will not reproduce on another host -- the one thing a
-// lockfile is for. A UNC path is fine and says nothing.
-//
-// This warns rather than refuses: a lockfile that never leaves this
-// machine is a legitimate use, and dropping the entry instead would be
-// worse than either -- the app would be installed but unlocked, so
-// `goop status` would report drift forever and `sync` elsewhere would
-// silently skip it.
-func warnMachineLocalSources(f lockfile.File) {
-	var local []string
-	for _, e := range f.Entries {
-		for _, u := range e.URLs {
-			if downloader.IsMachineLocalFileURL(u) {
-				local = append(local, e.Name)
-				break
-			}
-		}
-	}
-	if len(local) == 0 {
-		return
-	}
-	subject := fmt.Sprintf("%d entries use", len(local))
-	if len(local) == 1 {
-		subject = "1 entry uses"
-	}
-	ui.Warn("%s a machine-local file:// source: %s", subject, strings.Join(local, ", "))
-	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("These paths exist only on this machine, so this lockfile will not sync elsewhere."))
-	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Use a UNC path (file://server/share/...), or carry the cache across: `goop download` here, copy the cache directory, then `goop sync` there."))
-}
-
-func cmdSync(args []string) int {
-	path, ok := parseFileFlag(args)
-	if !ok {
-		fmt.Fprintln(os.Stderr, "usage: goop sync [--file <path>]")
-		return 2
-	}
-	res, err := installer.Sync(path)
-	if err != nil {
-		ui.Fail("sync: %v", err)
-		return 1
-	}
-	installed := append([]installer.SyncChange(nil), res.Installed...)
-	sort.Slice(installed, func(i, j int) bool { return installed[i].Name < installed[j].Name })
-	for _, c := range installed {
-		// An app that wasn't installed at all reads as a plain install;
-		// one that moved between versions shows both, so the report
-		// says what actually changed rather than just which names sync
-		// touched.
-		if c.OldVersion == "" {
-			fmt.Printf("%s installed %-28s %s\n", ui.Green(ui.CheckMark), c.Name, c.NewVersion)
-		} else {
-			fmt.Printf("%s synced    %-28s %s -> %s\n", ui.Green(ui.CheckMark), c.Name, ui.Dim(c.OldVersion), c.NewVersion)
-		}
-	}
-	alreadyOK := append([]installer.SyncChange(nil), res.AlreadyOK...)
-	sort.Slice(alreadyOK, func(i, j int) bool { return alreadyOK[i].Name < alreadyOK[j].Name })
-	for _, c := range alreadyOK {
-		fmt.Println(ui.Gray(fmt.Sprintf("%s in sync   %-28s %s", ui.CheckMark, c.Name, c.NewVersion)))
-	}
-	for _, n := range sortedKeys(res.Errors) {
-		ui.Fail("sync %s: %v", n, res.Errors[n])
-	}
-	if len(res.Errors) > 0 {
-		return 1
-	}
-	return 0
-}
-
-func cmdStatus(args []string) int {
-	path, ok := parseFileFlag(args)
-	if !ok {
-		fmt.Fprintln(os.Stderr, "usage: goop status [--file <path>]")
-		return 2
-	}
-	drift, err := installer.Status(path)
-	if err != nil {
-		ui.Fail("status: %v", err)
-		return 1
-	}
-	if len(drift) == 0 {
-		fmt.Printf("%s in sync with %s\n", ui.Green(ui.CheckMark), path)
-		return 0
-	}
-	rows := make([][]string, len(drift))
-	for i, d := range drift {
-		current := ui.Yellow(d.Current)
-		if d.Current == "" {
-			current = ui.Red("not installed")
-		}
-		// Reason is what distinguishes "wrong version" from "right
-		// version, broken install" -- the second used to be reported as
-		// no drift at all.
-		reason := d.Reason
-		if reason != "wrong version" && reason != "" {
-			reason = ui.Red(reason)
-		}
-		rows[i] = []string{d.Name, d.Locked, current, reason}
-	}
-	fmt.Print(ui.Table([]string{"NAME", "LOCKED", "CURRENT", "WHY"}, rows))
-	return 3
-}
-
 // appKnown reports whether name is something goop could actually
 // install or already has: installed apps count (their bucket may since
 // have been removed), otherwise any configured bucket must carry it.
@@ -557,7 +397,7 @@ func appKnown(name string) bool {
 
 func cmdProfile(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: goop profile <use|list|show|add|remove|reset> ...")
+		fmt.Fprintln(os.Stderr, "usage: goop profile <use|list|show|add|remove|reset|export|clone> ...")
 		return 2
 	}
 	switch args[0] {
@@ -656,10 +496,97 @@ func cmdProfile(args []string) int {
 			ui.Ok("removed %s from profile %s", app, args[1])
 		}
 		return exit
+	case "export":
+		out, wanted := "", []string{}
+		rest := args[1:]
+		for i := 0; i < len(rest); i++ {
+			switch rest[i] {
+			case "--out":
+				if i+1 >= len(rest) {
+					fmt.Fprintln(os.Stderr, "profile export: --out needs a file")
+					return 2
+				}
+				out = rest[i+1]
+				i++
+			case "--profile":
+				for i+1 < len(rest) && !strings.HasPrefix(rest[i+1], "--") {
+					wanted = append(wanted, rest[i+1])
+					i++
+				}
+			default:
+				fmt.Fprintln(os.Stderr, "usage: goop profile export --out <file> --profile <name>...")
+				return 2
+			}
+		}
+		if out == "" || len(wanted) == 0 {
+			fmt.Fprintln(os.Stderr, "usage: goop profile export --out <file> --profile <name>...")
+			return 2
+		}
+		f, missing, err := installer.ExportProfiles(wanted, func(n string) ([]string, error) {
+			d, err := profile.Load(n)
+			return d.Apps, err
+		})
+		if err != nil {
+			ui.Fail("profile export: %v", err)
+			return 1
+		}
+		if len(missing) > 0 {
+			// Guessing a version from the bucket would publish a pin
+			// nobody has ever run.
+			ui.Fail("profile export: not installed here, so there is nothing to pin: %s", strings.Join(missing, ", "))
+			return 1
+		}
+		if err := profileset.Save(out, f); err != nil {
+			ui.Fail("profile export: %v", err)
+			return 1
+		}
+		n := 0
+		for _, p := range f.Profiles {
+			n += len(p.Packages)
+		}
+		ui.Ok("exported %d profile(s), %d package(s) to %s", len(f.Profiles), n, out)
+		fmt.Println(ui.Dim("  commit it with the code; `goop check " + out + "` should be green here"))
+		return 0
+	case "clone":
+		if len(args) != 3 {
+			fmt.Fprintln(os.Stderr, "usage: goop profile clone <file> <profile>")
+			return 2
+		}
+		f, err := profileset.Load(args[1])
+		if err != nil {
+			ui.Fail("profile clone: %v", err)
+			return 1
+		}
+		src, ok := f.Profiles[args[2]]
+		if !ok {
+			ui.Fail("profile clone: no profile %q in %s (it has: %v)", args[2], args[1], f.Names())
+			return 1
+		}
+		d := profile.Definition{Name: args[2], Apps: src.SortedNames()}
+		if err := profile.Save(d); err != nil {
+			ui.Fail("profile clone: %v", err)
+			return 1
+		}
+		ui.Ok("cloned %s (%d package(s)) as a local profile", args[2], len(d.Apps))
+		fmt.Println(ui.Dim("  edit it with `goop profile add/remove`, then `goop profile export`"))
+		return 0
 	case "show":
 		if len(args) != 2 {
 			fmt.Fprintln(os.Stderr, "usage: goop profile show <name>")
 			return 2
+		}
+		// A profile that does not exist must say so. Printing it with
+		// "no members" reads as an empty profile, which is the same
+		// silence `goop check` refuses for a profile a file does not
+		// declare.
+		known, err := profile.List()
+		if err != nil {
+			ui.Fail("profile show: %v", err)
+			return 1
+		}
+		if !slices.Contains(known, args[1]) {
+			ui.Fail("profile show: no profile %q (there is: %v)", args[1], known)
+			return 1
 		}
 		d, err := profile.Load(args[1])
 		if err != nil {
@@ -697,7 +624,7 @@ func cmdProfile(args []string) int {
 		ui.Ok("profile reset to default (all members merged into default, named profiles removed)")
 		return 0
 	default:
-		fmt.Fprintln(os.Stderr, "usage: goop profile <use|list|show|add|remove|reset> ...")
+		fmt.Fprintln(os.Stderr, "usage: goop profile <use|list|show|add|remove|reset|export|clone> ...")
 		return 2
 	}
 }
@@ -2188,4 +2115,178 @@ func cmdConfig(args []string) int {
 		fmt.Fprintln(os.Stderr, configUsage)
 		return 2
 	}
+}
+
+// cmdCheck compares this machine against the profiles a file declares.
+// Reads receipts only -- no bucket, no network -- so it is instant and
+// answers the same on a disconnected machine.
+func cmdCheck(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: goop check <file> [profile...]")
+		return 2
+	}
+	f, err := profileset.Load(args[0])
+	if err != nil {
+		ui.Fail("check: %v", err)
+		return 1
+	}
+	deviations, err := installer.Check(f, args[1:])
+	if err != nil {
+		ui.Fail("check: %v", err)
+		return 1
+	}
+	if len(deviations) == 0 {
+		names := args[1:]
+		if len(names) == 0 {
+			names = f.Names()
+		}
+		ui.Ok("conformant: %s", strings.Join(names, ", "))
+		return 0
+	}
+	rows := make([][]string, len(deviations))
+	for i, d := range deviations {
+		got := ui.Yellow(d.Got)
+		if d.Got == "" {
+			got = ui.Red("-")
+		}
+		rows[i] = []string{d.Profile, d.Package, d.Want, got, ui.Red(d.Reason)}
+	}
+	fmt.Print(ui.Table([]string{"PROFILE", "PACKAGE", "REQUIRED", "INSTALLED", "WHY"}, rows))
+	return 3
+}
+
+// cmdSyncProfiles applies a profile file: install what is required and
+// missing, leave everything else alone.
+func cmdSyncProfiles(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: goop sync <file> [profile...]")
+		return 2
+	}
+	f, err := profileset.Load(args[0])
+	if err != nil {
+		ui.Fail("sync: %v", err)
+		return 1
+	}
+	fixed, errs, err := installer.SyncProfiles(f, args[1:])
+	if err != nil {
+		ui.Fail("sync: %v", err)
+		return 1
+	}
+	for _, d := range fixed {
+		ui.Ok("%s: %s %s", d.Profile, d.Package, d.Want)
+	}
+	for _, name := range sortedKeys(errs) {
+		ui.Fail("sync %s: %v", name, errs[name])
+	}
+	if len(errs) > 0 {
+		return 1
+	}
+
+	// A package can install cleanly and still not be what the profile
+	// pinned: the bucket may now carry different instructions under the
+	// same version number. Saying so is the difference between applying a
+	// file and merely running installs.
+	drifted, err := installer.VerifyPins(f, args[1:])
+	if err == nil && len(drifted) > 0 {
+		for _, d := range drifted {
+			ui.Warn("%s: %s %s installed, but its manifest differs from the one pinned", d.Profile, d.Package, d.Want)
+		}
+		fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("The bucket has changed what this version does. Re-pin with `goop profile export`, or restore the manifest."))
+		return 3
+	}
+	if len(fixed) == 0 {
+		fmt.Println(ui.Dim("nothing to do"))
+	}
+	return 0
+}
+
+// cmdExport captures this machine to a file: its buckets and everything
+// installed on it.
+func cmdExport(args []string) int {
+	out := "goop-setup.json"
+	if len(args) == 2 && args[0] == "--out" {
+		out = args[1]
+	} else if len(args) != 0 {
+		fmt.Fprintln(os.Stderr, "usage: goop export [--out <file>]")
+		return 2
+	}
+	f, err := installer.ExportSetup()
+	if err != nil {
+		ui.Fail("export: %v", err)
+		return 1
+	}
+	if err := setup.Save(out, f); err != nil {
+		ui.Fail("export: %v", err)
+		return 1
+	}
+	ui.Ok("captured %d package(s) and %d bucket(s) to %s", len(f.Apps), len(f.Buckets), out)
+	fmt.Println(ui.Dim("  replay it on another machine with `goop import " + out + "`"))
+	return 0
+}
+
+// cmdImportSetup replays a captured machine.
+func cmdImportSetup(args []string) int {
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: goop import <file>")
+		fmt.Fprintln(os.Stderr, ui.Dim("  to adopt apps installed by a real Scoop instead, use `goop adopt`"))
+		return 2
+	}
+	f, err := setup.Load(args[0])
+	if err != nil {
+		ui.Fail("import: %v", err)
+		return 1
+	}
+	installed, errs, err := installer.ImportSetup(f)
+	if err != nil {
+		ui.Fail("import: %v", err)
+		return 1
+	}
+	for _, n := range installed {
+		ui.Ok("installed %s", n)
+	}
+	for _, n := range sortedKeys(errs) {
+		ui.Fail("import %s: %v", n, errs[n])
+	}
+	if len(errs) > 0 {
+		return 1
+	}
+	if len(installed) == 0 {
+		fmt.Println(ui.Dim("nothing to do"))
+	}
+	return 0
+}
+
+// cmdAudit compares this machine against a capture.
+func cmdAudit(args []string) int {
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: goop audit <file>")
+		return 2
+	}
+	f, err := setup.Load(args[0])
+	if err != nil {
+		ui.Fail("audit: %v", err)
+		return 1
+	}
+	deviations, err := installer.AuditSetup(f)
+	if err != nil {
+		ui.Fail("audit: %v", err)
+		return 1
+	}
+	if len(deviations) == 0 {
+		ui.Ok("this machine matches %s", args[0])
+		return 0
+	}
+	rows := make([][]string, len(deviations))
+	for i, d := range deviations {
+		want, got := d.Want, d.Got
+		if want == "" {
+			want = ui.Dim("-")
+		}
+		if got == "" {
+			got = ui.Red("-")
+		}
+		rows[i] = []string{d.Package, want, got, ui.Red(d.Reason)}
+	}
+	fmt.Print(ui.Table([]string{"PACKAGE", "CAPTURED", "HERE", "WHY"}, rows))
+	return 3
 }

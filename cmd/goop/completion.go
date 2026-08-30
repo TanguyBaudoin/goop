@@ -21,7 +21,8 @@ import (
 // drift from run()'s switch in main.go.
 var topLevelCommands = []string{
 	"install", "uninstall", "update", "list", "info", "search", "depends", "cleanup", "download", "reset", "hold", "unhold", "cache", "bucket", "maven-repo",
-	"import", "migrate", "lock", "sync", "status", "profile", "why", "auth", "verify",
+	"check", "sync", "export", "import", "audit", "adopt",
+	"migrate", "profile", "why", "auth", "verify",
 	"config", "completion", "self-update", "version", "help",
 }
 
@@ -312,7 +313,7 @@ Register-ArgumentCompleter -Native -CommandName 'goop' -ScriptBlock {
             if ($n -eq 3 -and $tokens[2] -eq 'remove') { return Complete (& goop completion __mavenrepos 2>$null) }
         }
         'profile' {
-            if ($n -eq 2) { return Complete @('use','list','show','add','remove','reset') }
+            if ($n -eq 2) { return Complete @('use','list','show','add','remove','reset','export','clone') }
             if ($n -eq 3 -and $tokens[2] -in 'use','add','remove') { return Complete (& goop completion __profiles 2>$null) }
             if ($n -eq 4 -and $tokens[2] -in 'add','remove') { return Complete (& goop completion __apps 2>$null) }
         }
@@ -367,7 +368,7 @@ _goop_completions() {
             ;;
         profile)
             if [ "$COMP_CWORD" -eq 2 ]; then
-                COMPREPLY=( $(compgen -W "use list show add remove reset" -- "$cur") )
+                COMPREPLY=( $(compgen -W "use list show add remove reset export clone" -- "$cur") )
             elif [ "$COMP_CWORD" -eq 3 ] && { [ "${COMP_WORDS[2]}" = "use" ] || [ "${COMP_WORDS[2]}" = "add" ] || [ "${COMP_WORDS[2]}" = "remove" ]; }; then
                 COMPREPLY=( $(compgen -W "$(goop completion __profiles 2>/dev/null)" -- "$cur") )
             elif [ "$COMP_CWORD" -eq 4 ] && { [ "${COMP_WORDS[2]}" = "add" ] || [ "${COMP_WORDS[2]}" = "remove" ]; }; then

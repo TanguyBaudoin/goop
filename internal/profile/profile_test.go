@@ -3,9 +3,9 @@ package profile
 import (
 	"os"
 	"path/filepath"
-	"testing"
 
-	"github.com/TanguyBaudoin/goop/internal/lockfile"
+	"github.com/TanguyBaudoin/goop/internal/paths"
+	"testing"
 )
 
 // withTempRoot points paths.Root() at an isolated temp directory for the
@@ -29,7 +29,7 @@ func TestPath_DefaultIsAProfileFile(t *testing.T) {
 	if filepath.Base(Path(Default)) != "default.json" {
 		t.Errorf("Path(Default) = %q, want it to end in default.json", Path(Default))
 	}
-	if Path(Default) == lockfile.Path() {
+	if Path(Default) == filepath.Join(paths.Root(), "goop.lock.json") {
 		t.Error("the default profile must no longer alias the root lockfile")
 	}
 }
@@ -268,7 +268,7 @@ func TestLoad_ReadsLegacyLockfileShape(t *testing.T) {
 func TestLoad_RecoversDefaultFromRootLockfile(t *testing.T) {
 	withTempRoot(t)
 
-	rootLock := lockfile.Path()
+	rootLock := filepath.Join(paths.Root(), "goop.lock.json")
 	if err := os.MkdirAll(filepath.Dir(rootLock), 0o755); err != nil {
 		t.Fatal(err)
 	}
