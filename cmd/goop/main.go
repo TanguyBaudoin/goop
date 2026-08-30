@@ -339,7 +339,7 @@ func printUsage() {
 	cmd("", "refuses to go backwards unless --force -- a local build is not an older release")
 	fmt.Fprintln(os.Stderr)
 
-	fmt.Fprintf(os.Stderr, "%s 0 ok, 1 error, 2 usage, 3 drift detected ('goop status')\n", ui.Bold("exit codes:"))
+	fmt.Fprintf(os.Stderr, "%s 0 ok, 1 error, 2 usage, 3 deviation detected ('goop check', 'goop audit')\n", ui.Bold("exit codes:"))
 }
 
 func cmdVerify(args []string) int {
