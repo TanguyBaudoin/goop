@@ -14,8 +14,8 @@ import (
 )
 
 // A manifest whose `bin` does not match what the archive contains used to
-// install cleanly, leaving a shim that pointed at nothing. `goop status`
-// then reported the machine as in sync, because conformance was decided
+// install cleanly, leaving a shim that pointed at nothing. goop then
+// reported the machine as conformant, because conformance was decided
 // from the record's version alone -- so a package that could not run at
 // all was indistinguishable from a healthy one.
 //

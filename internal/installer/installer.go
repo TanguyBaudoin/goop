@@ -886,8 +886,8 @@ func createShims(appName string, bins []manifest.BinEntry) error {
 		}
 
 		// Checked before anything is written. A shim whose target does not
-		// exist is worse than no shim: it looks installed, `goop status`
-		// reports no drift, and the failure only surfaces when someone runs
+		// exist is worse than no shim: it looks installed, `goop check`
+		// reports no deviation, and the failure only surfaces when someone runs
 		// the command. Every manifest hook has run by this point, so a file
 		// that is not there never will be -- usually a `bin` that does not
 		// match what the archive actually contains, or an extract_dir that

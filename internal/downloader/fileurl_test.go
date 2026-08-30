@@ -45,7 +45,7 @@ func TestFileURLToPath_RejectsNonFile(t *testing.T) {
 
 // A drive-letter path exists only on the machine that wrote it; a UNC
 // path resolves identically from any host that can reach the share.
-// `goop lock` warns on the former and stays quiet on the latter.
+// Both export paths warn on the former and stay quiet on the latter.
 func TestIsMachineLocalFileURL(t *testing.T) {
 	cases := []struct {
 		url  string
