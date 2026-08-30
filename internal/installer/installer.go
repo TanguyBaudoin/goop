@@ -106,6 +106,10 @@ type Record struct {
 	// survives goop upgrades and is visible in `goop info`.
 	Hold        bool      `json:"hold,omitempty"`
 	InstalledAt time.Time `json:"installed_at"`
+	// ManifestDigest fingerprints the manifest this was installed from,
+	// so a profile check can compare against it without re-reading the
+	// bucket -- and would notice a manifest edited since.
+	ManifestDigest string `json:"manifest_digest,omitempty"`
 	// State is "pending" between the commit rename and the moment shims,
 	// shortcuts and environment entries are in place; "ready" after.
 	// Empty means ready, for records written before this field existed.
@@ -533,6 +537,7 @@ func installResolved(appName, bucketName, archKey string, resolved manifest.Reso
 		PSModuleName:      resolved.PSModuleName,
 		Suggest:           resolved.Suggest,
 		Depends:           functionalDepends(resolved.Depends, resolved),
+		ManifestDigest:    resolved.Digest,
 		InstalledAt:       time.Now().UTC(),
 	}
 	// Written pending: the rename below makes this version visible, but

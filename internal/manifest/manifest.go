@@ -101,6 +101,12 @@ type Manifest struct {
 	Architecture map[string]ArchOverride
 
 	Extra map[string]json.RawMessage
+
+	// Digest fingerprints what this manifest will do -- see Digest().
+	// Computed at decode so it travels with the manifest through every
+	// path that already carries one, rather than needing the raw bytes
+	// threaded separately.
+	Digest string
 }
 
 // ArchOverride holds the fields a manifest may override under
@@ -238,6 +244,11 @@ func Decode(data []byte) (Manifest, error) {
 		InnoSetup:    raw.InnoSetup,
 		Extra:        all,
 		Architecture: map[string]ArchOverride{},
+	}
+	// Best effort: the digest is an integrity aid, not a parse
+	// requirement, and data that got this far is already valid JSON.
+	if d, err := Digest(data); err == nil {
+		m.Digest = d
 	}
 	var licenseErr error
 	m.LicenseIdentifier, m.LicenseURL, licenseErr = decodeLicense(raw.License)

@@ -15,6 +15,24 @@ built from — quote it in bug reports.
 
 ### Added
 
+- Installs record a **manifest digest** in the receipt: a fingerprint of
+  what the manifest will actually do — URLs, artifact hashes, bin
+  entries, every install and uninstall script, shortcuts, environment
+  changes, persisted paths, and the per-architecture overrides of all of
+  them.
+
+  A manifest is executable content. An artifact hash says the payload is
+  unchanged and nothing about a `post_install` edited since; the manifest
+  digest covers both, because the artifact hash is itself part of the
+  manifest.
+
+  Computed by decoding and re-encoding canonically rather than hashing
+  the file, so formatting cannot affect it — which matters concretely: a
+  bucket cloned with `core.autocrlf=true` has CRLF on every line while
+  the same bucket fetched as a zip has LF, and goop uses both.
+  `checkver` and `autoupdate` are excluded: they drive how a maintainer
+  produces new versions and change nothing about installing a pinned one.
+
 - `goop lock --exclude <profile>` leaves a profile's packages out of the
   lockfile. Useful for keeping a grouping out of the artifact CI installs
   from; which grouping is the caller's decision, not goop's.

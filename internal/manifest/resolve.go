@@ -12,6 +12,11 @@ type Resolved struct {
 	Name    string
 	Version string
 
+	// Digest is the manifest's fingerprint, recorded with the install so
+	// a later check can tell whether the instructions changed without
+	// going back to the bucket.
+	Digest string
+
 	Description       string
 	Homepage          string
 	LicenseIdentifier string
@@ -97,6 +102,7 @@ func (m Manifest) Resolve(name, archKey string) (Resolved, error) {
 	r := Resolved{
 		Name:              name,
 		Version:           m.Version,
+		Digest:            m.Digest,
 		Description:       m.Description,
 		Homepage:          m.Homepage,
 		LicenseIdentifier: m.LicenseIdentifier,
