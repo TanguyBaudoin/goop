@@ -11,6 +11,46 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
+## [Unreleased]
+
+### Added
+
+- `goop digest <name>... | --all [--recheck]` records a manifest digest
+  for installs that have none — installed by a goop older than 0.3.0, or
+  adopted from a real Scoop, which never had them. Without one,
+  `goop profile export` can only write a version-only pin.
+
+  It does **not** recompute the digest, because that is not possible. The
+  digest fingerprints the manifest a package was *installed from*, and
+  the only manifest available now is whatever the bucket offers today.
+  Stamping that onto an old install would assert something nobody
+  checked, and `goop check` would then be green about it — the confident
+  wrong answer the digest exists to prevent.
+
+  So it is recorded only when it can be corroborated: the bucket must
+  still offer that exact version (goop cannot fetch a historical
+  manifest), and every field the receipt captured at install time — urls,
+  hashes, bin, extract dirs, shortcuts, uninstaller, uninstall scripts,
+  psmodule, depends — must match it. Otherwise the package is reported
+  with the field that differs, or with the version the bucket has moved
+  on to, and nothing is written.
+
+  **What it cannot corroborate**, stated in the command's own output
+  rather than buried here: `pre_install`, `post_install` and
+  `installer.script`. The receipt never recorded them, so a manifest
+  republished with an edited install script and everything else unchanged
+  would pass. A digest recorded this way is an adoption of the current
+  manifest, corroborated by everything the receipt remembers — not a
+  recovery of what actually ran. Reinstalling is still the only way to
+  get a digest of the real thing.
+
+  `--recheck` also examines packages that already have a digest, and
+  reports where a bucket has republished a version you have installed.
+  Nothing is rewritten in that case: the recorded digest is the evidence.
+
+  Verified against real installs: the digest written by a backfill is
+  byte-identical to the one a fresh install of the same package records.
+
 ## [0.3.1] — 2026-08-30
 
 Four defects, all reported from real use within hours of 0.3.0. One of

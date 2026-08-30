@@ -258,6 +258,13 @@ both. `checkver` and `autoupdate` are excluded — they tell a bucket
 maintainer how to find new versions, and change nothing about installing
 the one you pinned.
 
+If a package was installed by a goop older than 0.3.0, or adopted from
+Scoop, its receipt has no digest and `profile export` says so. `goop
+digest --all` fills them in — but only where it can prove the bucket
+still offers the same manifest, field by field against what the receipt
+recorded. It cannot check `post_install`, which goop never stored, and
+says so rather than implying otherwise.
+
 A bare version string works too, when you don't want the digest:
 
 ```json

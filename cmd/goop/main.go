@@ -168,6 +168,8 @@ func run(args []string) int {
 		return cmdExport(args[1:])
 	case "audit":
 		return cmdAudit(args[1:])
+	case "digest":
+		return cmdDigest(args[1:])
 	case "check":
 		return cmdCheck(args[1:])
 	case "sync":
@@ -287,6 +289,9 @@ func printUsage() {
 	cmd("goop import <file>", "replay a capture: configure its buckets, then install its packages")
 	cmd("goop audit <file>", "compare this machine to a capture; exit 3 on any difference, either way")
 	cmd("goop adopt [name]...", "adopt apps installed by a real Scoop, without touching Scoop's own files")
+	cmd("goop digest <name>... | --all [--recheck]", "record a manifest digest for installs that have none (older goop, or adopted)")
+	cmd("", "only when the bucket still offers that exact version and every recorded field matches")
+	cmd("", "--recheck also reports versions a bucket has republished since you installed them")
 	fmt.Fprintln(os.Stderr)
 
 	section("auth")
@@ -2264,6 +2269,109 @@ func cmdImportSetup(args []string) int {
 }
 
 // cmdAudit compares this machine against a capture.
+func cmdDigest(args []string) int {
+	var names []string
+	all, recheck := false, false
+	for _, a := range args {
+		switch a {
+		case "--all":
+			all = true
+		case "--recheck":
+			recheck = true
+		default:
+			if strings.HasPrefix(a, "-") {
+				fmt.Fprintln(os.Stderr, "usage: goop digest <name>... | --all [--recheck]")
+				return 2
+			}
+			names = append(names, a)
+		}
+	}
+	if len(names) == 0 && !all {
+		fmt.Fprintln(os.Stderr, "usage: goop digest <name>... | --all [--recheck]")
+		return 2
+	}
+
+	results, err := installer.BackfillDigests(names, recheck)
+	if err != nil {
+		ui.Fail("digest: %v", err)
+		return 1
+	}
+	if len(results) == 0 {
+		fmt.Println(ui.Dim("nothing to do"))
+		return 0
+	}
+
+	var rows [][]string
+	recorded, blocked, moved := 0, 0, 0
+	for _, r := range results {
+		// Without --recheck, saying "already had one" for every healthy
+		// package buries the handful that need attention.
+		if r.Outcome == installer.DigestAlreadyHad && !recheck {
+			continue
+		}
+		var outcome string
+		switch r.Outcome {
+		case installer.DigestRecorded:
+			outcome = ui.Green(string(r.Outcome))
+			recorded++
+		case installer.DigestAlreadyHad:
+			outcome = ui.Dim(string(r.Outcome))
+		case installer.DigestMoved:
+			outcome = ui.Red(string(r.Outcome))
+			moved++
+		default:
+			outcome = ui.Red(string(r.Outcome))
+			blocked++
+		}
+		detail := r.Detail
+		if detail == "" {
+			detail = ui.Dim("-")
+		}
+		rows = append(rows, []string{r.Package, r.Version, outcome, detail})
+	}
+	if len(rows) > 0 {
+		fmt.Print(ui.Table([]string{"PACKAGE", "VERSION", "RESULT", "DETAIL"}, rows))
+		fmt.Println()
+	}
+
+	if recorded > 0 {
+		ui.Ok("recorded %d digest(s)", recorded)
+		// The receipt never captured pre_install/post_install, so a
+		// manifest republished with an edited install script and
+		// everything else unchanged would have passed the corroboration
+		// above. Claiming these pins are as strong as one written by an
+		// install would be the overstatement this whole feature exists to
+		// avoid.
+		fmt.Println(ui.Dim("  each was corroborated against the bucket: same version, and every field"))
+		fmt.Println(ui.Dim("  the receipt kept -- urls, hashes, bin, shortcuts, uninstaller -- matches."))
+		fmt.Println(ui.Dim("  install scripts could not be checked: goop never recorded them, so these"))
+		fmt.Println(ui.Dim("  adopt the current manifest rather than recover what actually ran."))
+		fmt.Println(ui.Dim("  reinstall (`goop update <name>`) if you want a digest of the real thing."))
+	}
+	if moved > 0 {
+		// These already have a digest and it is doing its job. Nothing is
+		// rewritten: overwriting would erase the very evidence that the
+		// bucket republished the version.
+		ui.Warn("%d package(s) no longer match the bucket's manifest for the version you have", moved)
+		fmt.Println(ui.Dim("  the bucket republished that version with different instructions. Your"))
+		fmt.Println(ui.Dim("  recorded digest is left alone -- it is the evidence. Compare with"))
+		fmt.Println(ui.Dim("  `goop info <name>`, and `goop update <name>` to take the new manifest."))
+	}
+	if blocked > 0 {
+		ui.Warn("%d package(s) could not be given one", blocked)
+		fmt.Println(ui.Dim("  `unavailable` means the bucket has moved on: goop cannot fetch a"))
+		fmt.Println(ui.Dim("  historical manifest, so there is nothing honest to record. Updating"))
+		fmt.Println(ui.Dim("  the package records a digest as a side effect."))
+	}
+	if blocked > 0 || moved > 0 {
+		return 1
+	}
+	if recorded == 0 && len(rows) == 0 {
+		fmt.Println(ui.Dim("every install already has a manifest digest"))
+	}
+	return 0
+}
+
 func cmdAudit(args []string) int {
 	if len(args) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: goop audit <file>")
