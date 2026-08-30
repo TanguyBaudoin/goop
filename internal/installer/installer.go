@@ -852,10 +852,31 @@ func readRecord(versionDir string) (Record, bool) {
 // place).
 func relinkCurrent(appName, versionDir string) error {
 	link := paths.AppCurrent(appName)
-	if _, err := os.Lstat(link); err == nil {
-		out, err := exec.Command("cmd", "/c", "rmdir", link).CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("remove existing junction %s: %w\n%s", link, err, out)
+	if fi, err := os.Lstat(link); err == nil {
+		// `rmdir` on a junction removes the link and leaves the target
+		// alone. On a real directory it removes the contents -- and
+		// refuses outright when they are not empty, which is how this
+		// surfaced: exit 145, "The directory is not empty".
+		//
+		// A self-updating app can replace the junction with a real
+		// directory and move itself into it (Zen Browser does, confirmed
+		// on a real install). goop then cannot relink, the receipt stays
+		// pending, and every later update retries the same failure --
+		// stuck for good.
+		//
+		// Never delete it: it holds a real installation, possibly with
+		// user data. Move it aside, say where it went, and carry on.
+		if fi.Mode()&os.ModeSymlink == 0 && fi.IsDir() {
+			aside, err := detachRealCurrent(appName, link)
+			if err != nil {
+				return err
+			}
+			Logf("%s: `current` was a real directory, not a junction -- a self-updating app replaced it. Moved it to %s; delete it once you are sure nothing in it is wanted.", appName, filepath.Base(aside))
+		} else {
+			out, err := exec.Command("cmd", "/c", "rmdir", link).CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("remove existing junction %s: %w\n%s", link, err, out)
+			}
 		}
 	}
 	out, err := exec.Command("cmd", "/c", "mklink", "/J", link, versionDir).CombinedOutput()
@@ -863,6 +884,52 @@ func relinkCurrent(appName, versionDir string) error {
 		return fmt.Errorf("create junction %s -> %s: %w\n%s", link, versionDir, err, out)
 	}
 	return nil
+}
+
+// detachRealCurrent moves a `current` that is a real directory out of the
+// way and returns where it went.
+//
+// Preferably back to the version directory its own receipt names, which
+// restores the layout goop expects and loses nothing -- but only when
+// that directory holds nothing. Otherwise it gets a numbered
+// `current.detached-N` name, because overwriting either one would
+// destroy an installation goop did not create.
+func detachRealCurrent(appName, link string) (string, error) {
+	appDir := filepath.Dir(link)
+
+	if rec, ok := readRecord(link); ok && rec.Version != "" {
+		home := paths.AppVersion(appName, rec.Version)
+		if empty, err := dirIsEmptyOrAbsent(home); err == nil && empty {
+			if err := os.RemoveAll(home); err == nil {
+				if err := os.Rename(link, home); err == nil {
+					return home, nil
+				}
+			}
+		}
+	}
+
+	for n := 1; ; n++ {
+		aside := filepath.Join(appDir, fmt.Sprintf("current.detached-%d", n))
+		if _, err := os.Lstat(aside); err == nil {
+			continue
+		}
+		if err := os.Rename(link, aside); err != nil {
+			return "", fmt.Errorf("move aside %s: %w", link, err)
+		}
+		return aside, nil
+	}
+}
+
+// dirIsEmptyOrAbsent reports whether path holds nothing worth keeping.
+func dirIsEmptyOrAbsent(path string) (bool, error) {
+	entries, err := os.ReadDir(path)
+	if os.IsNotExist(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return len(entries) == 0, nil
 }
 
 // createShims materializes one shim per bin entry, hard-linked from a
