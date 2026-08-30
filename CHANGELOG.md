@@ -11,7 +11,11 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
-## [Unreleased]
+## [0.3.0] — 2026-08-30
+
+The release that separates what a *project* needs from what is on a
+*machine*. If you use `goop lock`, `goop status` or `goop sync --file`,
+read the Changed section before upgrading — all three are gone.
 
 ### Changed
 
@@ -146,6 +150,15 @@ built from — quote it in bug reports.
   `lock` was removed — on files that are now *more* likely to travel, not
   less. A UNC share resolves from any host that can reach it and stays
   quiet.
+
+- `goop self-update`'s upgrade path is tested for the first time. It
+  matters for this release in particular: everyone on 0.2.0 reaches 0.3.0
+  through it, and until now only the already-current case could be
+  exercised — a freshly released binary and the latest release are by
+  definition the same version, so the forward path was always deferred to
+  the release after next. `updateAt` now takes its target and release
+  base explicitly, so an upgrade, a no-op and a refused downgrade all run
+  against a release served over `file://` in about four seconds.
 
 ### Removed
 
@@ -297,6 +310,7 @@ status. The largest: installation is verified by hand rather than by an
 automated harness, the released binary is not Authenticode-signed so
 SmartScreen may warn on first run, and goop has a single maintainer.
 
-[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.3.0
 [0.2.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.2.0
 [0.1.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.1.0
