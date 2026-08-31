@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/TanguyBaudoin/goop/internal/profile"
 	"github.com/TanguyBaudoin/goop/internal/profileset"
@@ -118,39 +119,84 @@ func contains(haystack []string, needle string) bool {
 //
 // Idempotent and needs no prior state: an empty machine and a drifted one
 // take the same path, because the path is "make each deviation go away".
+//
+// Concurrent, with the same bound as `goop install` -- a first sync on a
+// fresh machine is a batch of downloads, which is exactly the case
+// bounded concurrency exists for. installSpec is already safe to run in
+// parallel (InstallAll does), a per-app lock serializes two profiles
+// wanting the same package, and profile.Add takes a mutex.
+//
+// One package failing does not stop the others: each deviation is
+// independent, and a dead download URL in a twenty-package profile should
+// leave nineteen installed and one reported, not nineteen unattempted.
 func SyncProfiles(f profileset.File, names []string) ([]Deviation, map[string]error, error) {
 	deviations, err := Check(f, names)
 	if err != nil {
 		return nil, nil, err
 	}
-	fixed := make([]Deviation, 0, len(deviations))
-	errs := map[string]error{}
+
+	concurrency := defaultConcurrency()
+	if concurrency > len(deviations) {
+		concurrency = len(deviations)
+	}
+	if concurrency < 1 {
+		concurrency = 1
+	}
+
+	var (
+		mu    sync.Mutex
+		wg    sync.WaitGroup
+		fixed = make([]Deviation, 0, len(deviations))
+		errs  = map[string]error{}
+		sem   = make(chan struct{}, concurrency)
+	)
 	for _, d := range deviations {
-		// A package already installed at the right version needs no
-		// install -- only filing. Running one anyway would re-download
-		// and re-extract a working package to fix a line in a text file.
-		if strings.HasPrefix(d.Reason, "not filed under") {
-			if err := profile.Add(d.Profile, d.Package); err != nil {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(d Deviation) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			err := fixOne(d)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
 				errs[d.Package] = err
-				continue
+				return
 			}
 			fixed = append(fixed, d)
-			continue
-		}
-		spec := d.Package
-		if d.Want != "" {
-			spec = d.Package + "@" + d.Want
-		}
-		// Register into the profile being repaired, not the active one.
-		// A machine syncing chipA usually has `default` active, and
-		// registering there emptied the very profile the sync was fixing.
-		if _, err := InstallInto(spec, d.Profile); err != nil {
-			errs[d.Package] = err
-			continue
-		}
-		fixed = append(fixed, d)
+		}(d)
 	}
+	wg.Wait()
+
+	// Sorted, because concurrency decides the order things finish in and
+	// a report that shuffles between runs is hard to diff.
+	sort.Slice(fixed, func(i, j int) bool {
+		if fixed[i].Profile != fixed[j].Profile {
+			return fixed[i].Profile < fixed[j].Profile
+		}
+		return fixed[i].Package < fixed[j].Package
+	})
 	return fixed, errs, nil
+}
+
+// fixOne makes a single deviation go away.
+func fixOne(d Deviation) error {
+	// A package already installed at the right version needs no install
+	// -- only filing. Running one anyway would re-download and re-extract
+	// a working package to fix a line in a text file.
+	if strings.HasPrefix(d.Reason, "not filed under") {
+		return profile.Add(d.Profile, d.Package)
+	}
+	spec := d.Package
+	if d.Want != "" {
+		spec = d.Package + "@" + d.Want
+	}
+	// Register into the profile being repaired, not the active one: the
+	// file says which profile each package belongs to, and that is better
+	// information than any machine-local default.
+	_, err := InstallInto(spec, d.Profile)
+	return err
 }
 
 // SyncSummary is what a sync established, so it can report what it

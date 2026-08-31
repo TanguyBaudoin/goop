@@ -41,6 +41,24 @@ built from — quote it in bug reports.
   unexpected happens is friction, so the question appears only when one
   name turns into four — which is what apt does, for the same reason.
 
+- **`goop profile sync` runs its installs concurrently.** `install` and
+  `update` always did; sync was a plain sequential loop, and there was no
+  reason for it -- installSpec is already safe to run in parallel, a
+  per-app lock serializes two profiles wanting the same package, and
+  `profile.Add` takes a mutex. A first sync on a fresh machine is a batch
+  of downloads, which is precisely the case bounded concurrency exists
+  for.
+
+  One package failing still does not stop the others: a dead download URL
+  in a twenty-package profile leaves nineteen installed and one reported,
+  not nineteen unattempted. Verified against a manifest with a 404 URL --
+  the other packages install, the failure is reported, `sync` exits 1, a
+  following `check` exits 3, and nothing is left behind: no partial app
+  directory and no partial file in the cache.
+
+  The report is sorted, since concurrency decides what finishes first and
+  a summary that shuffles between runs cannot be diffed.
+
 - **`goop uninstall` shows the cascade before removing anything.**
   Uninstall follows the packages that declare the target as a dependency,
   so asking to remove one can remove three. That was invisible until it
