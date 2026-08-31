@@ -11,7 +11,12 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
-## [Unreleased]
+## [0.4.0] — 2026-08-31
+
+Four changes, all from a day of real use. The command surface says which
+subject it acts on, `goop update` shows its plan before running it, and
+profile membership is part of conformance rather than something a sync
+silently left wrong.
 
 ### Changed
 
@@ -32,6 +37,55 @@ built from — quote it in bug reports.
 
   `goop adopt` (take over a real Scoop install) and `goop digest` are
   unchanged and stay top-level: neither belongs to a plane.
+
+- **`goop update` shows what it would do, and asks.** It used to run
+  every install first and report afterwards. On a maintained machine the
+  answer is "nothing" — reported from a real one: 41 packages, none with
+  a newer version — and finding that out cost a full pass plus 41 lines
+  of roll-call.
+
+  It resolves first now (a bucket manifest read per app, no downloads;
+  well under a second for those 41), prints a table of what would change,
+  and asks. The prompt appears only where there is someone to answer it:
+  a pipe, CI or a scheduled task proceeds, because update is routine
+  rather than destructive. `-y` skips it, `--dry-run` stops after the
+  plan, `-v` lists the packages already current — which are otherwise a
+  single count, since that list was the noise.
+
+  Held packages and ones goop could not resolve are always named. A held
+  app that quietly did not update looks exactly like one with nothing to
+  update, and an unresolvable one looks healthy; the latter now sets the
+  exit code whether or not anything else changed.
+
+  Refreshing buckets names each one and how long it took, instead of a
+  single line followed by a silent multi-second pause — indistinguishable
+  from a hang on a slow link.
+
+- **Profile membership is part of conformance.** Install a package by
+  hand and it lands in `default`. Sync a file whose `ide` profile
+  declares it, and goop printed "nothing to do" — the version was right,
+  so there was no deviation — and left it under `default`. The machine
+  did not match the file and goop said it did.
+
+  Being filed somewhere else is now a deviation naming where the package
+  actually is, and `goop profile sync` fixes it **by filing it, not by
+  reinstalling**: the package is already there at the right version, and
+  only a line in a text file is wrong. Correcting bookkeeping must not
+  re-download a 4 GB IDE.
+
+  Only *absence* from the declared profile counts. Extra local
+  memberships are the machine's own business, the same way a package
+  outside every profile is never a deviation.
+
+- **`default` is a fallback and behaves like one.** Adding a package to a
+  named profile drops it from `default`. Before this, `goop why` reported
+  two owners for a package with one, and a package stayed in `default`
+  after being deliberately filed elsewhere. Two *named* profiles sharing
+  a package still both list it.
+
+- **"nothing to do" is gone.** An empty file and a fully conformant
+  machine printed the same line, and neither said whether anything had
+  been checked. `goop profile sync` now reports what it verified.
 
 - **Removed `goop profile clone`.** It created a local profile from a
   file without installing anything, and since profile membership became
@@ -446,7 +500,8 @@ status. The largest: installation is verified by hand rather than by an
 automated harness, the released binary is not Authenticode-signed so
 SmartScreen may warn on first run, and goop has a single maintainer.
 
-[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.4.0
 [0.3.1]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.3.1
 [0.3.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.3.0
 [0.2.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.2.0
