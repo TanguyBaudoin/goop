@@ -11,8 +11,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/TanguyBaudoin/goop/internal/archive"
 	"github.com/TanguyBaudoin/goop/internal/downloader"
@@ -542,36 +544,53 @@ func updateArchive(url, dir string) error {
 // encountered (after attempting the rest) so one broken bucket doesn't
 // block reporting on the others.
 func UpdateAll() error {
-	entries, err := List()
+	results, err := UpdateAllReport(nil)
 	if err != nil {
 		return err
 	}
-	// Concurrently: each Update is a `git pull` against a different
-	// remote, so this is almost entirely network wait -- serially it
-	// meant five round trips back to back, which became painful once
-	// install started refreshing stale buckets on its own. Each bucket
-	// is a separate directory and a separate git process, so there is
-	// no shared state to guard beyond collecting the error.
-	var (
-		mu       sync.Mutex
-		firstErr error
-		wg       sync.WaitGroup
-	)
-	for _, e := range entries {
+	for _, r := range results {
+		if r.Err != nil {
+			return r.Err
+		}
+	}
+	return nil
+}
+
+// RefreshResult is what refreshing one bucket did, so a caller can show
+// which bucket is being fetched and how long it took. On a slow link a
+// silent multi-second pause is indistinguishable from a hang.
+type RefreshResult struct {
+	Name     string
+	Duration time.Duration
+	Err      error
+}
+
+// UpdateAllReport refreshes every configured bucket and reports each
+// one. onStart, if given, is called with a bucket's name as its refresh
+// begins -- concurrently, so it must be safe to call from several
+// goroutines.
+func UpdateAllReport(onStart func(name string)) ([]RefreshResult, error) {
+	entries, err := List()
+	if err != nil {
+		return nil, err
+	}
+	results := make([]RefreshResult, len(entries))
+	var wg sync.WaitGroup
+	for i, e := range entries {
 		wg.Add(1)
-		go func(name string) {
+		go func(i int, name string) {
 			defer wg.Done()
-			if err := Update(name); err != nil {
-				mu.Lock()
-				if firstErr == nil {
-					firstErr = err
-				}
-				mu.Unlock()
+			if onStart != nil {
+				onStart(name)
 			}
-		}(e.Name)
+			start := time.Now()
+			err := Update(name)
+			results[i] = RefreshResult{Name: name, Duration: time.Since(start), Err: err}
+		}(i, e.Name)
 	}
 	wg.Wait()
-	return firstErr
+	sort.Slice(results, func(i, j int) bool { return results[i].Name < results[j].Name })
+	return results, nil
 }
 
 // manifestDir returns where .json manifests live inside a bucket:

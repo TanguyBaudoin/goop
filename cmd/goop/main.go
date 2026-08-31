@@ -224,8 +224,10 @@ func printUsage() {
 	cmd("goop uninstall <name>... [--force]", "refuses if still referenced by another profile unless --force (see `goop why`)")
 	cmd("goop uninstall --all [--force]", "remove every installed app; asks you to type a word to confirm")
 	cmd("", "there is no unattended form: it refuses when stdin is not a terminal")
-	cmd("goop update [name]... [--no-update]", "upgrade to the bucket's current version; all installed if none given (FR-05)")
-	cmd("", "refreshes buckets first if stale -- without that it would report 'up to date' against old data")
+	cmd("goop update [name]... [--dry-run] [-y] [-v]", "shows what would change and asks before doing it; all installed if none given (FR-05)")
+	cmd("", "refreshes buckets first if stale (--no-update skips) -- without that it would report 'up to date' against old data")
+	cmd("", "--dry-run plans only, -y skips the prompt, -v lists the packages already current")
+	cmd("", "a non-interactive run (CI, a pipe) proceeds without asking")
 	fmt.Fprintln(os.Stderr)
 
 	section("inspect")
@@ -1044,97 +1046,6 @@ func confirmUninstallAll() bool {
 		return false
 	}
 	return true
-}
-
-func cmdUpdate(args []string) int {
-	var names []string
-	noUpdate := false
-	for _, a := range args {
-		if a == "--no-update" {
-			noUpdate = true
-			continue
-		}
-		names = append(names, a)
-	}
-	// Refresh stale buckets first -- more important here than for
-	// install, since update's whole job is to find versions newer than
-	// what's installed, and it looks for them *in* the buckets. Against
-	// a stale bucket it cheerfully reports "up to date" for apps that
-	// have a newer release waiting, which is worse than being slow.
-	if !noUpdate && paths.BucketsStale() {
-		fmt.Println(ui.Dim("buckets are out of date, refreshing (skip with --no-update)"))
-		if err := bucket.UpdateAll(); err != nil {
-			ui.Fail("bucket update: %v", err) // non-fatal: updating from cache still beats refusing
-		} else if err := paths.MarkBucketsUpdated(); err != nil {
-			ui.Fail("bucket update: %v", err)
-		}
-	}
-
-	results, errs, err := installer.UpdateAll(names)
-	if err != nil {
-		ui.Fail("update: %v", err)
-		return 1
-	}
-
-	var updated, unchanged, held []string
-	for name, r := range results {
-		switch {
-		case r.Held:
-			held = append(held, name)
-		case r.Updated:
-			updated = append(updated, name)
-		default:
-			unchanged = append(unchanged, name)
-		}
-	}
-	sort.Strings(updated)
-	sort.Strings(unchanged)
-	sort.Strings(held)
-
-	// One clearly-delimited recap after the concurrent work is done.
-	// Updates run in parallel, so the live progress lines above arrive
-	// interleaved and in no meaningful order -- without a header the
-	// recap just looks like more of the same stream. Failures come
-	// first because they're the part that needs acting on; burying them
-	// under 20 "up to date" lines is how they get missed.
-	fmt.Println()
-	fmt.Println(ui.Bold("update summary"))
-
-	if len(errs) > 0 {
-		fmt.Printf("\n%s\n", ui.Bold(fmt.Sprintf("failed (%d)", len(errs))))
-		for _, name := range sortedKeys(errs) {
-			ui.Fail("%s: %v", name, errs[name])
-		}
-	}
-	if len(updated) > 0 {
-		fmt.Printf("\n%s\n", ui.Bold(fmt.Sprintf("updated (%d)", len(updated))))
-		for _, name := range updated {
-			r := results[name]
-			fmt.Printf("%s %-28s %s -> %s\n", ui.Green(ui.CheckMark), name, ui.Dim(r.OldVersion), r.NewVersion)
-		}
-	}
-	if len(held) > 0 {
-		// Shown explicitly: a held app that silently didn't update looks
-		// exactly like one that had nothing to update.
-		fmt.Printf("\n%s\n", ui.Bold(fmt.Sprintf("held, not updated (%d)", len(held))))
-		for _, name := range held {
-			fmt.Println(ui.Gray(fmt.Sprintf("%s %-28s %s", ui.CheckMark, name, results[name].NewVersion)))
-		}
-	}
-	if len(unchanged) > 0 {
-		fmt.Printf("\n%s\n", ui.Bold(fmt.Sprintf("already up to date (%d)", len(unchanged))))
-		for _, name := range unchanged {
-			fmt.Println(ui.Gray(fmt.Sprintf("%s %-28s %s", ui.CheckMark, name, results[name].NewVersion)))
-		}
-	}
-
-	if len(results) == 0 && len(errs) == 0 {
-		fmt.Println(ui.Dim("no apps installed"))
-	}
-	if len(errs) > 0 {
-		return 1
-	}
-	return 0
 }
 
 // cmdHold pins or unpins apps against `goop update`.
