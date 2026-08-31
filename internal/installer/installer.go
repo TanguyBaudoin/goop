@@ -289,9 +289,19 @@ func installSpec(spec string, stack []string, quiet bool) (Record, error) {
 			return Record{}, fmt.Errorf("%s: %w", spec, err)
 		}
 		if !ok {
+			// Worth being specific about whose problem this is. goop
+			// installs from a manifest, and a bucket only carries the
+			// manifest for the version it currently offers -- there is no
+			// history to reach back into. So a pin outlives the bucket
+			// that served it only if that bucket keeps the version.
+			// Against a rolling public bucket it will not; against one
+			// you control it is a retention decision you can make.
 			return Record{}, fmt.Errorf(
-				"conflict: %s requires %s, but bucket %q currently offers %s (installing a specific historical version isn't supported -- only the bucket's current version can be checked against a constraint)",
-				appName, spec, bucketName, m.Version)
+				"%s requires %s, but bucket %q now offers %s.\n"+
+					"  A bucket carries one manifest per package -- the current one -- so goop\n"+
+					"  cannot reach back for %s. Either take the version the bucket has, or pin\n"+
+					"  against a bucket you control that keeps the versions you depend on.",
+				appName, spec, bucketName, m.Version, spec)
 		}
 	}
 

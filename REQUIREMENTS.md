@@ -210,6 +210,16 @@ plainly:
 - A version withdrawn from every configured bucket can no longer be
   reinstalled from the file alone. The old lockfile could, because it
   carried the URL.
+
+  This is an **operating condition, not an edge case**, and which side of
+  it you are on is decided by the bucket. A bucket carries one manifest
+  per package -- the current one -- so a pin resolves only while that
+  bucket still offers the version. Against the public `main`, which rolls
+  forward by design, pins go stale as a matter of course. Against a
+  bucket the team controls, keeping a version is a retention decision,
+  and that is the setup pinned profile files are for. The README says so
+  where someone choosing a bucket will read it, and the error names the
+  situation rather than reporting an unsupported operation.
 - Nothing silently substitutes something else: FR-15 means a manifest
   that changed under the same version number is reported, not installed
   over.

@@ -81,8 +81,10 @@ parallel.
 **It keeps your toolchain reproducible.** One JSON file, committed with
 your code, says which packages the project needs and at which versions.
 `goop profile check` tells you whether this machine matches it —
-instantly, offline — and `goop profile sync` makes it match. Checking out an old commit
-gives you the toolchain that went with it.
+instantly, offline — and `goop profile sync` makes it match. Checking out
+an old commit gives you the toolchain that went with it, for as long as
+your bucket still carries those versions — see [Which bucket you pin
+against](#which-bucket-you-pin-against).
 
 **It works on locked-down networks.** Per-host authentication with
 credentials in the Windows Credential Manager, proxy support, buckets
@@ -276,6 +278,35 @@ A bare version string works too, when you don't want the digest:
 ```json
 {"profiles": {"chipA": {"packages": {"cmake": "3.31.2"}}}}
 ```
+
+### Which bucket you pin against
+
+A pin is only as durable as the bucket behind it. goop installs from a
+manifest, and a bucket carries **one manifest per package** — the current
+one. There is no history to reach back into, so a pin resolves only while
+the bucket still offers that exact version:
+
+```
+cmake requires cmake@3.31.2, but bucket "main" now offers 3.32.0.
+```
+
+Against the public `main` and `extras`, which roll forward, that will
+happen. Those buckets exist to serve the latest version, not to archive
+old ones, and it is not something you can pin your way out of.
+
+Against **a bucket you control**, it does not: keeping the manifest for a
+version your projects depend on is a retention decision you get to make,
+and an internal bucket is usually a small repository or a zip on a share.
+That is the setup this file format is for, and it needs neither Git nor
+GitHub:
+
+```powershell
+goop bucket add internal file://fileserver/goop/our-bucket.zip
+```
+
+So: pin against `main` for convenience, and expect to move versions
+forward as it does. Pin against your own bucket when the point is that
+last year's commit still builds.
 
 ### Taking a profile as your own
 
