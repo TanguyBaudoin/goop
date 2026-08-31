@@ -2271,8 +2271,19 @@ func cmdExport(args []string) int {
 
 // cmdImportSetup replays a captured machine.
 func cmdImportSetup(args []string) int {
+	var rest []string
+	assumeYes := false
+	for _, a := range args {
+		switch a {
+		case "-y", "--yes":
+			assumeYes = true
+		default:
+			rest = append(rest, a)
+		}
+	}
+	args = rest
 	if len(args) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: goop machine restore <file>")
+		fmt.Fprintln(os.Stderr, "usage: goop machine restore <file> [-y]")
 		fmt.Fprintln(os.Stderr, ui.Dim("  to adopt apps installed by a real Scoop instead, use `goop adopt`"))
 		return 2
 	}
@@ -2296,7 +2307,7 @@ func cmdImportSetup(args []string) int {
 		fmt.Println(ui.Dim("  " + strings.Join(names, ", ")))
 	}
 	fmt.Println(ui.Dim("  already-installed packages are left alone"))
-	if !confirm("Restore onto this machine?") {
+	if !assumeYes && !confirm("Restore onto this machine?") {
 		return cancelled()
 	}
 	fmt.Println()

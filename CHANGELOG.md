@@ -11,7 +11,36 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
-## [Unreleased]
+## [0.6.0] — 2026-08-31
+
+Every command that changes the machine now shows what it will do and
+asks. Plus a checkup that found three things nothing was watching.
+
+### Added
+
+- **`goop machine export` captures how packages were grouped**, and
+  `goop machine restore` puts them back. Without it a restored machine
+  had everything in `default` and the organisation to rebuild by hand —
+  which defeats the point of capturing a machine. `goop machine audit`
+  compares the grouping too: a machine that files packages differently is
+  not the machine that was captured.
+
+- **`internal/paths` has tests** — 0% to 73%. It decides where every file
+  goop writes ends up, resolves `GOOP_HOME` against the persisted root,
+  and matches hosts against `NO_PROXY`, and nothing was watching any of
+  it.
+
+### Fixed
+
+- **`goop config set-bucket-ttl 500ms` silently meant "never refresh".**
+  The TTL is stored in whole seconds, so anything under one second
+  truncated to `0` — which is the documented value for disabling the
+  automatic refresh. Asking for the shortest possible window got the
+  opposite, with no indication. Refused now, saying why. Found by the
+  first test ever written for that package.
+
+- `goop machine restore` rejected `-y`, so the flag every other command
+  had did not work on the one that installs an entire machine.
 
 ### Changed
 
@@ -597,7 +626,8 @@ status. The largest: installation is verified by hand rather than by an
 automated harness, the released binary is not Authenticode-signed so
 SmartScreen may warn on first run, and goop has a single maintainer.
 
-[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.6.0
 [0.5.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.5.0
 [0.4.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.4.0
 [0.3.1]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.3.1

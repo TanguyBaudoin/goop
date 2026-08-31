@@ -86,9 +86,16 @@ func ConfiguredBucketTTL() time.Duration {
 }
 
 // SetConfiguredBucketTTL persists the freshness window in seconds.
+//
+// Anything under a second that is not zero is refused rather than
+// rounded. Truncating it to zero would store "never refresh" -- the
+// exact opposite of asking for a very short window, and silently.
 func SetConfiguredBucketTTL(d time.Duration) error {
 	if d < 0 {
 		return fmt.Errorf("bucket TTL must not be negative (use 0 to disable the automatic refresh)")
+	}
+	if d > 0 && d < time.Second {
+		return fmt.Errorf("bucket TTL is stored in whole seconds, so %s would round to 0 -- which means \"never refresh\", not \"always\". Use 1s or more, or 0 to disable the automatic refresh", d)
 	}
 	secs := int64(d / time.Second)
 	return updateConfig(func(c *config) { c.BucketTTL = &secs })

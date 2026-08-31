@@ -22,6 +22,12 @@ import (
 type File struct {
 	Buckets []Bucket `json:"buckets"`
 	Apps    []App    `json:"apps"`
+	// Profiles is how the packages were grouped: profile name -> member
+	// names. Part of what is on a machine, and lost on a restore without
+	// it -- everything landed in `default` and the organisation had to be
+	// rebuilt by hand. Empty profiles are captured too: an empty grouping
+	// someone created on purpose is still a fact about the machine.
+	Profiles map[string][]string `json:"profiles,omitempty"`
 }
 
 // Bucket is one configured catalogue.
@@ -77,6 +83,9 @@ func Load(path string) (File, error) {
 func Save(path string, f File) error {
 	sort.Slice(f.Buckets, func(i, j int) bool { return f.Buckets[i].Name < f.Buckets[j].Name })
 	sort.Slice(f.Apps, func(i, j int) bool { return f.Apps[i].Name < f.Apps[j].Name })
+	for name := range f.Profiles {
+		sort.Strings(f.Profiles[name])
+	}
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return err

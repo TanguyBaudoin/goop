@@ -3,6 +3,7 @@ package installer
 import (
 	"testing"
 
+	"github.com/TanguyBaudoin/goop/internal/profile"
 	"github.com/TanguyBaudoin/goop/internal/setup"
 )
 
@@ -104,5 +105,66 @@ func TestExportSetup_CapturesBucketsAndApps(t *testing.T) {
 	// otherwise nothing downstream of it can be trusted.
 	if devs := auditReasons(t, f); len(devs) != 0 {
 		t.Errorf("a capture must match its own machine, got %v", devs)
+	}
+}
+
+// A capture that forgets how packages were grouped restores a machine
+// with everything in `default` and the organisation to rebuild by hand.
+func TestExportSetup_CapturesProfiles(t *testing.T) {
+	isolateRoot(t)
+	fakeInstall(t, Record{Name: "jq", Version: "1.8.2", State: "ready"})
+	fakeInstall(t, Record{Name: "gsudo", Version: "2.6.1", State: "ready"})
+	if err := profile.Add("chipA", "jq"); err != nil {
+		t.Fatal(err)
+	}
+	if err := profile.Add("ide", "gsudo"); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := ExportSetup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.Profiles["chipA"]; len(got) != 1 || got[0] != "jq" {
+		t.Errorf("chipA = %v, want [jq]", got)
+	}
+	if got := f.Profiles["ide"]; len(got) != 1 || got[0] != "gsudo" {
+		t.Errorf("ide = %v, want [gsudo]", got)
+	}
+	// A capture must audit clean against the machine it came from,
+	// grouping included.
+	if devs := auditReasons(t, f); len(devs) != 0 {
+		t.Errorf("a capture must match its own machine, got %v", devs)
+	}
+}
+
+// The grouping is part of what was captured, so a machine that groups
+// differently is not the machine that was captured.
+func TestAuditSetup_ReportsRegroupedPackages(t *testing.T) {
+	isolateRoot(t)
+	fakeInstall(t, Record{Name: "jq", Version: "1.8.2", State: "ready"})
+	if err := profile.Add("chipA", "jq"); err != nil {
+		t.Fatal(err)
+	}
+	f, err := ExportSetup()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := profile.Remove("chipA", "jq"); err != nil {
+		t.Fatal(err)
+	}
+	devs, err := AuditSetup(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, d := range devs {
+		if d.Package == "jq" && d.Profile == "chipA" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("a package no longer filed where the capture put it must be reported, got %+v", devs)
 	}
 }
