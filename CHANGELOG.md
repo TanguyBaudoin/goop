@@ -11,7 +11,11 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
-## [Unreleased]
+## [0.5.0] — 2026-08-31
+
+Two gaps in the profile commands, both reported from use: there was no
+way to delete a profile, and the "active profile" was a hidden mode that
+decided where installs landed.
 
 ### Added
 
@@ -534,7 +538,8 @@ status. The largest: installation is verified by hand rather than by an
 automated harness, the released binary is not Authenticode-signed so
 SmartScreen may warn on first run, and goop has a single maintainer.
 
-[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.5.0
 [0.4.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.4.0
 [0.3.1]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.3.1
 [0.3.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.3.0

@@ -217,7 +217,7 @@ func printUsage() {
 
 	section("install & remove")
 	cmd("goop install <spec>... [--profile <name>]", "spec: [bucket/]name[@constraint], e.g. jq, extras/mpv, jq@1.8.2")
-	cmd("", "--profile files them under that profile (default: `default`); --no-update skips the bucket refresh")
+	cmd("", "--profile files them under that profile; without it they land in `default`")
 	cmd("", "refreshes buckets first if older than 3h (--no-update skips), same as Scoop")
 	cmd("", "depends resolve recursively, with cycle + conflict detection (A4)")
 	cmd("", "or maven:[reponame/]groupId:artifactId:version:classifier:packaging -- needs `goop maven-repo add` first")
