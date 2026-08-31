@@ -11,6 +11,30 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
+## [Unreleased]
+
+### Added
+
+- **Tests for `internal/bucket` and `cmd/goop`**, the two largest
+  untested areas left after 0.6.0.
+
+  `internal/bucket` (8% → 42%) now covers what the config actually
+  decides: priority order and which bucket wins a name collision, that a
+  bucket-qualified spec consults only that bucket, that an out-of-range
+  priority clamps instead of dropping an entry, that removing one bucket
+  leaves the others alone, and that a manifest which exists but will not
+  decode is not reported as missing — an error that sends you looking in
+  entirely the wrong place.
+
+  `cmd/goop` (0% → 59%) covers the contract CI depends on: exit codes
+  (2 for usage, 1 for a missing file, 0 for a clean dry run), that every
+  removed 0.3.x name says where it went, that `-y` is accepted by all six
+  commands that change the machine, and that `--dry-run` installs
+  nothing. One test walks the completion list and asserts `run()` handles
+  every name in it — a name offered by `goop <tab>` that dispatches to
+  "unknown command" is a broken promise, and it fails as intended when a
+  case is removed from the switch.
+
 ## [0.6.0] — 2026-08-31
 
 Every command that changes the machine now shows what it will do and
