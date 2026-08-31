@@ -11,6 +11,40 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
+## [Unreleased]
+
+### Added
+
+- `goop profile delete <name>` — there was no way to remove a profile.
+  `profile remove` takes apps out of one, `profile reset` destroys every
+  named profile at once, and nothing sat between them.
+
+  Nothing is uninstalled: a profile is a grouping, not an installation.
+  A member left in no profile at all falls back to `default` — that is
+  what `default` is for, and an orphan would otherwise be invisible to
+  the uninstall safety net. A member another profile still claims stays
+  there. `default` itself cannot be deleted.
+
+- `goop install --profile <name>` files packages under a named profile.
+
+### Changed
+
+- **Breaking: removed `goop profile use` and the active profile.** It
+  was a hidden mode that decided where an install landed, from a setting
+  possibly made days earlier, and it borrowed the `conda activate` model
+  for something that is not an isolated environment. Which profile a
+  package joins is now said on the command that installs it.
+
+  Packages land in `default` unless `--profile` says otherwise, and
+  filing one under a named profile takes it out of `default`.
+
+- The uninstall safety net now stops when a package belongs to **more
+  than one** profile. It used to mean "any profile other than the active
+  one", which made the warning depend on that hidden setting — and warned
+  about a package with a single owner whenever you happened to be
+  somewhere else. The new rule is the one the README always described:
+  *"if cmake belongs to another profile too"*.
+
 ## [0.4.0] — 2026-08-31
 
 Four changes, all from a day of real use. The command surface says which

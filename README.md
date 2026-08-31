@@ -172,15 +172,21 @@ A profile is a named group of packages. Not an isolated environment —
 installs stay shared — but a way to say *what belongs to what*.
 
 ```powershell
-goop profile use chipA
-goop install cmake ninja gcc      # these join chipA
+goop install cmake ninja gcc --profile chipA
+goop profile add chipA rustup     # or file something already installed
 goop list --tree                  # grouped by profile, dependencies nested
 goop why cmake                    # which profiles reference it
+goop profile delete chipA         # drop the grouping; nothing is uninstalled
 ```
 
-The useful part is the safety net. If `cmake` belongs to another profile
-too, `goop uninstall cmake` stops and tells you rather than pulling it
-out from under someone else. `--force` overrides it.
+Which profile a package joins is said on the command that installs it.
+There is no "active profile" to forget you set — packages land in
+`default` unless you say otherwise, and filing one under a named profile
+takes it out of `default`.
+
+The useful part is the safety net. If `cmake` belongs to more than one
+profile, `goop uninstall cmake` stops and tells you rather than pulling
+it out from under someone else. `--force` overrides it.
 
 Only packages you asked for by name become members — a dependency pulled
 in automatically never does — so the tree shows what you chose versus

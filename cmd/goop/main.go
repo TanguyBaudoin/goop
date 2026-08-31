@@ -216,7 +216,8 @@ func printUsage() {
 	}
 
 	section("install & remove")
-	cmd("goop install <spec>... [--no-update]", "spec: [bucket/]name[@constraint], e.g. jq, extras/mpv, jq@1.8.2")
+	cmd("goop install <spec>... [--profile <name>]", "spec: [bucket/]name[@constraint], e.g. jq, extras/mpv, jq@1.8.2")
+	cmd("", "--profile files them under that profile (default: `default`); --no-update skips the bucket refresh")
 	cmd("", "refreshes buckets first if older than 3h (--no-update skips), same as Scoop")
 	cmd("", "depends resolve recursively, with cycle + conflict detection (A4)")
 	cmd("", "or maven:[reponame/]groupId:artifactId:version:classifier:packaging -- needs `goop maven-repo add` first")
@@ -264,17 +265,17 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr)
 
 	section("profiles")
-	cmd("goop profile use <name>", "switch the active profile (like conda activate); installs register into it")
-	cmd("goop profile list", "* marks the active one; MEMBERS is how many apps each profile references")
+	cmd("goop profile list", "MEMBERS is how many apps each profile references")
+	cmd("goop profile delete <name>", "delete a profile; nothing is uninstalled, orphaned members fall back to default")
 	cmd("goop profile show <name>", "what it contains, and which of its members are installed")
 	cmd("goop profile add <name> <app>...", "declare app(s) as members without installing them")
 	cmd("goop profile remove <name> <app>...", "un-declare, without uninstalling")
-	cmd("goop profile reset", "merge all profiles into default, delete named profiles, reset active")
+	cmd("goop profile reset", "merge every profile into default and delete the named ones; nothing is uninstalled")
 	cmd("goop why <name>", "which profile(s) reference name")
 
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("A profile is a named group of app names, not an isolated environment -- installs stay global/shared."))
-	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Every `goop install` registers into whichever profile is active (default: \"default\")."))
+	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("`goop install` files packages under `default` unless `--profile` says otherwise."))
 	fmt.Fprintln(os.Stderr)
 
 	section("profiles -- what a repository needs")
@@ -405,20 +406,22 @@ func appKnown(name string) bool {
 
 func cmdProfile(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: goop profile <use|list|show|add|remove|reset|export|sync|check> ...")
+		fmt.Fprintln(os.Stderr, "usage: goop profile <list|show|add|remove|delete|reset|export|sync|check> ...")
 		return 2
 	}
 	switch args[0] {
-	case "use":
+	case "delete", "rm":
 		if len(args) != 2 {
-			fmt.Fprintln(os.Stderr, "usage: goop profile use <name>")
+			fmt.Fprintln(os.Stderr, "usage: goop profile delete <name>")
 			return 2
 		}
-		if err := profile.Use(args[1]); err != nil {
-			ui.Fail("profile use: %v", err)
+		before, _ := profile.Load(args[1])
+		if err := profile.Delete(args[1]); err != nil {
+			ui.Fail("profile delete: %v", err)
 			return 1
 		}
-		ui.Ok("active profile set to %s", args[1])
+		ui.Ok("deleted profile %s (%d member(s) released, nothing uninstalled)", args[1], len(before.Apps))
+		fmt.Println(ui.Dim("  members left in no other profile fell back to default"))
 		return 0
 	case "list":
 		names, err := profile.List()
@@ -426,17 +429,12 @@ func cmdProfile(args []string) int {
 			ui.Fail("profile list: %v", err)
 			return 1
 		}
-		active := profile.Active()
 		rows := make([][]string, len(names))
 		for i, name := range names {
 			d, _ := profile.Load(name)
-			marker := ""
-			if name == active {
-				marker = ui.Green("*")
-			}
-			rows[i] = []string{marker, name, fmt.Sprintf("%d", len(d.Apps))}
+			rows[i] = []string{name, fmt.Sprintf("%d", len(d.Apps))}
 		}
-		fmt.Print(ui.Table([]string{"", "NAME", "MEMBERS"}, rows))
+		fmt.Print(ui.Table([]string{"NAME", "MEMBERS"}, rows))
 		return 0
 	case "add":
 		if len(args) < 3 {
@@ -620,7 +618,7 @@ func cmdProfile(args []string) int {
 		ui.Ok("profile reset to default (all members merged into default, named profiles removed)")
 		return 0
 	default:
-		fmt.Fprintln(os.Stderr, "usage: goop profile <use|list|show|add|remove|reset|export|sync|check> ...")
+		fmt.Fprintln(os.Stderr, "usage: goop profile <list|show|add|remove|delete|reset|export|sync|check> ...")
 		return 2
 	}
 }
@@ -831,15 +829,26 @@ func printMigrationReport(plan installer.MigrationPlan, bucketErrs map[string]er
 func cmdInstall(args []string) int {
 	var names []string
 	noUpdate := false
-	for _, a := range args {
-		if a == "--no-update" {
+	// Which profile the packages join is said here, on the command that
+	// installs them, rather than kept as a mode set days earlier.
+	profileName := profile.Default
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--no-update":
 			noUpdate = true
-			continue
+		case "--profile":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "goop install: --profile needs a name")
+				return 2
+			}
+			profileName = args[i+1]
+			i++
+		default:
+			names = append(names, args[i])
 		}
-		names = append(names, a)
 	}
 	if len(names) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: goop install <spec>... [--no-update]")
+		fmt.Fprintln(os.Stderr, "usage: goop install <spec>... [--profile <name>] [--no-update]")
 		return 2
 	}
 	// Refresh stale buckets first, the way real Scoop's own install does
@@ -858,7 +867,7 @@ func cmdInstall(args []string) int {
 		}
 	}
 
-	errs := installer.InstallAll(names)
+	errs := installer.InstallAll(names, profileName)
 	exit := 0
 	for _, name := range sortedKeys(errs) {
 		if err := errs[name]; err != nil {
@@ -1292,16 +1301,10 @@ func listTree(records []installer.Record) int {
 		ui.Fail("list: %v", err)
 		return 1
 	}
-	active := profile.Active()
-
 	shown := map[string]bool{}
 	for _, p := range profiles {
 		members := profileMembers(p, byName)
-		marker := ""
-		if p == active {
-			marker = ui.Green(" *")
-		}
-		fmt.Printf("%s%s  %s\n", ui.Bold(p), marker, ui.Dim(fmt.Sprintf("(%d app(s))", len(members))))
+		fmt.Printf("%s  %s\n", ui.Bold(p), ui.Dim(fmt.Sprintf("(%d app(s))", len(members))))
 		top := roots(members, byName)
 		for i, name := range top {
 			printAppTree(name, byName, "", i == len(top)-1, shown, map[string]bool{})

@@ -29,9 +29,9 @@ func defaultConcurrency() int {
 // including ones sharing a bucket, a cached asset, or a shim name --
 // the shared state that touches (the download cache, the shim master
 // file) is synchronized internally.
-func InstallAll(names []string) map[string]error {
+func InstallAll(names []string, profileName string) map[string]error {
 	return runConcurrent(names, defaultConcurrency(), func(name string) error {
-		_, err := Install(name)
+		_, err := InstallInto(name, profileName)
 		return err
 	})
 }

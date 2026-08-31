@@ -101,13 +101,16 @@ func uninstallRec(appName string, force bool, cascadeStack []string) error {
 	}
 
 	if !force {
+		// More than one claimant is the case worth stopping for: the
+		// README always described it as "if cmake belongs to another
+		// profile too". It used to be implemented as "any profile other
+		// than the active one", which made the warning depend on a
+		// setting made days earlier -- and warned about a package with a
+		// single owner whenever you happened to be somewhere else.
 		if containing, err := profile.ContainingProfiles(appName); err == nil {
-			active := profile.Active()
 			var others []string
-			for _, p := range containing {
-				if p != active {
-					others = append(others, p)
-				}
+			if len(containing) > 1 {
+				others = containing
 			}
 			if len(others) > 0 {
 				return fmt.Errorf(

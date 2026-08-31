@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -254,16 +255,56 @@ func ContainingProfiles(appName string) ([]string, error) {
 	return containing, nil
 }
 
-func activeFilePath() string {
-	return filepath.Join(profilesDir(), "active.json")
+// Delete removes a named profile.
+//
+// Nothing is uninstalled: a profile is a grouping, not an installation.
+// Members left in no profile at all fall back to Default -- that is what
+// Default is for, and an orphaned package would otherwise be invisible to
+// the uninstall safety net.
+//
+// Default itself cannot be deleted: it is the fallback, so removing it
+// would leave nowhere for anything to fall back to.
+func Delete(name string) error {
+	if name == "" || name == Default {
+		return fmt.Errorf("the default profile cannot be deleted (use `goop profile remove default <app>...` to un-declare members)")
+	}
+	names, err := List()
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(names, name) {
+		return fmt.Errorf("no profile %q (there is: %v)", name, names)
+	}
+
+	d, err := Load(name)
+	if err != nil {
+		return err
+	}
+
+	profileMu.Lock()
+	if err := os.Remove(Path(name)); err != nil && !os.IsNotExist(err) {
+		profileMu.Unlock()
+		return err
+	}
+	profileMu.Unlock()
+
+	// After the file is gone, so ContainingProfiles no longer counts it.
+	for _, app := range d.Apps {
+		in, err := ContainingProfiles(app)
+		if err != nil {
+			return err
+		}
+		if len(in) == 0 {
+			if err := Add(Default, app); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
-type activeState struct {
-	Active string `json:"active,omitempty"`
-}
-
-// Reset merges every profile's members into Default, deletes the named
-// profiles, and makes Default active again.
+// Reset merges every profile's members into Default and deletes the
+// named profiles. Nothing is uninstalled.
 func Reset() error {
 	profileMu.Lock()
 	defer profileMu.Unlock()
@@ -289,36 +330,5 @@ func Reset() error {
 			return err
 		}
 	}
-	if err := Save(def); err != nil {
-		return err
-	}
-	return Use(Default)
-}
-
-// Active returns the currently active profile name.
-func Active() string {
-	data, err := os.ReadFile(activeFilePath())
-	if err != nil {
-		return Default
-	}
-	var s activeState
-	if err := json.Unmarshal(data, &s); err != nil || s.Active == "" {
-		return Default
-	}
-	return s.Active
-}
-
-// Use makes name the active profile.
-func Use(name string) error {
-	if name == "" {
-		name = Default
-	}
-	data, err := json.MarshalIndent(activeState{Active: name}, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(profilesDir(), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(activeFilePath(), data, 0o644)
+	return Save(def)
 }

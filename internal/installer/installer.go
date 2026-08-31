@@ -214,31 +214,31 @@ func lockInstall(appName string) func() {
 // Installing an already-installed version is a no-op success (idempotent,
 // so re-running a batch is cheap).
 //
-// The top-level app named by spec is registered as a member of the
-// currently active profile (profile.Active/`goop profile use`) --
+// The top-level app named by spec is filed under the default profile --
 // deliberately only the top-level target, not any dependency pulled in
 // along the way (installDependencies calls installSpec directly, never
 // this function), so a profile's membership reflects what was actually
 // asked for, not everything transitively required to satisfy it.
+//
+// Use InstallInto to file it somewhere else.
 func Install(spec string) (Record, error) {
-	return InstallInto(spec, profile.Active())
+	return InstallInto(spec, profile.Default)
 }
 
-// InstallInto is Install, registering into a named profile instead of the
-// active one.
+// InstallInto is Install, filing the result under a named profile.
 //
-// `goop profile sync <file> chipA` knows which profile it is repairing, and the
-// active profile is usually something else entirely -- on a new machine
-// it is `default`. Registering there put a package the file assigns to
-// chipA into default instead, so re-syncing a profile silently emptied
-// it. The caller that knows the answer has to be able to say so.
+// The caller that knows which profile a package belongs to says so:
+// `goop profile sync <file> chipA` knows it from the file,
+// `goop install --profile chipA` from the command line. goop used to
+// keep a hidden "active profile" instead, which made where a package
+// landed depend on a setting made days earlier.
 func InstallInto(spec, profileName string) (Record, error) {
 	rec, err := installSpec(spec, nil, false)
 	if err != nil {
 		return Record{}, err
 	}
 	if profileName == "" {
-		profileName = profile.Active()
+		profileName = profile.Default
 	}
 	if err := profile.Add(profileName, rec.Name); err != nil {
 		Logf("%s: profile registration: %v", rec.Name, err) // non-fatal: same tier as shortcuts, the app is installed and usable either way

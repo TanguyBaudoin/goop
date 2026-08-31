@@ -3,6 +3,7 @@ package profile
 import (
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/TanguyBaudoin/goop/internal/paths"
 	"testing"
@@ -152,25 +153,54 @@ func TestList_IncludesDefaultEvenWhenEmpty(t *testing.T) {
 	}
 }
 
-func TestActiveUse(t *testing.T) {
+// Deleting a profile is a grouping operation, not an uninstall -- and a
+// member left in no profile at all would be invisible to the uninstall
+// safety net, so it falls back to Default.
+func TestDelete(t *testing.T) {
 	withTempRoot(t)
 
-	if got := Active(); got != Default {
-		t.Fatalf("Active() before any Use() = %q, want %q", got, Default)
+	for _, a := range []string{"gcc", "cmake"} {
+		if err := Add("chipA", a); err != nil {
+			t.Fatal(err)
+		}
 	}
-
-	if err := Use("projectA"); err != nil {
+	// cmake is claimed by a second profile, so it must stay there rather
+	// than fall back.
+	if err := Add("chipB", "cmake"); err != nil {
 		t.Fatal(err)
 	}
-	if got := Active(); got != "projectA" {
-		t.Fatalf("Active() after Use(projectA) = %q, want projectA", got)
-	}
 
-	if err := Use(""); err != nil {
+	if err := Delete("chipA"); err != nil {
 		t.Fatal(err)
 	}
-	if got := Active(); got != Default {
-		t.Fatalf("Active() after Use(\"\") = %q, want %q", got, Default)
+	names, err := List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(names, "chipA") {
+		t.Errorf("chipA still listed: %v", names)
+	}
+	if got, _ := ContainingProfiles("gcc"); len(got) != 1 || got[0] != Default {
+		t.Errorf("gcc = %v, want [default] -- an orphan must fall back", got)
+	}
+	if got, _ := ContainingProfiles("cmake"); len(got) != 1 || got[0] != "chipB" {
+		t.Errorf("cmake = %v, want [chipB] -- it still has a claimant", got)
+	}
+}
+
+// Default is the fallback, so deleting it would leave nowhere to fall
+// back to. And a name that does not exist is an error, not a silent no-op.
+func TestDelete_RefusesDefaultAndUnknown(t *testing.T) {
+	withTempRoot(t)
+
+	if err := Delete(Default); err == nil {
+		t.Error("deleting the default profile must fail")
+	}
+	if err := Delete(""); err == nil {
+		t.Error("deleting an empty name must fail")
+	}
+	if err := Delete("never-existed"); err == nil {
+		t.Error("deleting an unknown profile must fail")
 	}
 }
 
@@ -186,17 +216,8 @@ func TestReset_MergesIntoDefault(t *testing.T) {
 	if err := Add("projectB", "jq"); err != nil {
 		t.Fatal(err)
 	}
-	if err := Use("projectA"); err != nil {
-		t.Fatal(err)
-	}
-
 	if err := Reset(); err != nil {
 		t.Fatal(err)
-	}
-
-	// Active should be back to default.
-	if got := Active(); got != Default {
-		t.Fatalf("Active() after Reset() = %q, want %q", got, Default)
 	}
 
 	// Only default profile should remain.
@@ -241,8 +262,12 @@ func TestReset_Idempotent(t *testing.T) {
 	if err := Reset(); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := Active(), Default; got != want {
-		t.Fatalf("Active() after Reset() = %q, want %q", got, want)
+	names, err := List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 1 || names[0] != Default {
+		t.Fatalf("List() after Reset() = %v, want [default]", names)
 	}
 }
 
