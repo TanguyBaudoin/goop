@@ -63,7 +63,7 @@ verifies its hash, **runs it once to confirm it works**, and only then
 swaps it in. If anything fails at that point the old binary is put back.
 
 It is never automatic, and won't be. goop exists to freeze toolchains; a
-binary that replaced itself between two `goop sync` runs would change the
+binary that replaced itself between two `goop profile sync` runs would change the
 engine reading your pins without being asked. It also refuses to go
 backwards — a locally built binary is not an older release — unless you
 pass `--force`.
@@ -80,8 +80,8 @@ parallel.
 
 **It keeps your toolchain reproducible.** One JSON file, committed with
 your code, says which packages the project needs and at which versions.
-`goop check` tells you whether this machine matches it — instantly,
-offline — and `goop sync` makes it match. Checking out an old commit
+`goop profile check` tells you whether this machine matches it —
+instantly, offline — and `goop profile sync` makes it match. Checking out an old commit
 gives you the toolchain that went with it.
 
 **It works on locked-down networks.** Per-host authentication with
@@ -207,8 +207,8 @@ git add goop.profiles.json
 Everyone else, on any machine, ever:
 
 ```powershell
-goop check .\goop.profiles.json     # what is missing, wrong, or broken
-goop sync  .\goop.profiles.json     # make it right
+goop profile check .\goop.profiles.json   # what is missing, wrong, or broken
+goop profile sync  .\goop.profiles.json   # make it right
 ```
 
 `check` reads install receipts and nothing else — no bucket, no network —
@@ -219,7 +219,7 @@ failure.
 One file can hold several profiles, and you name the ones you care about:
 
 ```powershell
-goop sync .\goop.profiles.json chipA
+goop profile sync .\goop.profiles.json chipA
 ```
 
 Anything not named is left alone, and **a package outside the profiles is
@@ -273,11 +273,9 @@ A bare version string works too, when you don't want the digest:
 
 ### Taking a profile as your own
 
-```powershell
-goop profile clone .\goop.profiles.json chipA
-```
-
-You now have a local, editable `chipA`. Add or remove packages with
+`goop profile sync` already leaves you with a local, editable `chipA` —
+filing a package under the profile the file declares is part of what it
+means to match the file. Add or remove packages with
 `goop profile add/remove`, then `goop profile export` to publish it back.
 
 ## Moving to a new machine
@@ -287,9 +285,9 @@ question — "what is on this machine" — is a separate plane with its own
 three commands and nothing to do with any repository:
 
 ```powershell
-goop export --out .\machine.json    # buckets + every installed package
-goop import .\machine.json          # elsewhere: buckets first, then packages
-goop audit  .\machine.json          # did it come out the same?
+goop machine export --out .\machine.json   # buckets + every installed package
+goop machine restore .\machine.json        # elsewhere: buckets first, then packages
+goop machine audit  .\machine.json         # did it come out the same?
 ```
 
 `audit` reports **both directions**: what the capture has and this
@@ -347,7 +345,7 @@ Copy `<GOOP_HOME>\cache` across — and the bucket, if the isolated machine
 hasn't got one — then:
 
 ```powershell
-goop sync .\goop.profiles.json
+goop profile sync .\goop.profiles.json
 ```
 
 Every package resolves out of the cache. Nothing touches the network.
@@ -355,7 +353,8 @@ Every package resolves out of the cache. Nothing touches the network.
 Manifests and buckets can also point straight at a share with a `file://`
 URL. Use the UNC form (`file://server/share/x.zip`) if the file will
 travel: a drive-letter path only exists on the machine that wrote it, and
-both `goop profile export` and `goop export` warn you when they see one.
+both `goop profile export` and `goop machine export` warn you when they
+see one.
 
 
 

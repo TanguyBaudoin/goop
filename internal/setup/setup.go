@@ -60,7 +60,7 @@ func Load(path string) (File, error) {
 	}
 	if _, ok := probe["apps"]; !ok {
 		if _, isProfiles := probe["profiles"]; isProfiles {
-			return File{}, fmt.Errorf("%s is a profile file, not a machine capture -- use `goop check`/`goop sync`", path)
+			return File{}, fmt.Errorf("%s is a profile file, not a machine capture -- use `goop profile check`/`goop profile sync`", path)
 		}
 		return File{}, fmt.Errorf("%s is not a machine capture (no \"apps\")", path)
 	}

@@ -21,7 +21,7 @@ import (
 // drift from run()'s switch in main.go.
 var topLevelCommands = []string{
 	"install", "uninstall", "update", "list", "info", "search", "depends", "cleanup", "download", "reset", "hold", "unhold", "cache", "bucket", "maven-repo",
-	"check", "sync", "export", "import", "audit", "adopt", "digest",
+	"machine", "adopt", "digest",
 	"migrate", "profile", "why", "auth", "verify",
 	"config", "completion", "self-update", "version", "help",
 }

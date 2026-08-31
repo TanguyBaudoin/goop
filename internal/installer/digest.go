@@ -50,8 +50,8 @@ type DigestResult struct {
 // the package was *installed from*, and the only manifest available now
 // is whatever the bucket offers today. Stamping today's manifest onto an
 // old install would assert something nobody checked, and would then make
-// `goop check` green about it -- exactly the confident wrong answer the
-// digest exists to prevent.
+// `goop profile check` green about it -- exactly the confident wrong
+// answer the digest exists to prevent.
 //
 // So it is only recorded when it can be corroborated:
 //

@@ -160,22 +160,21 @@ func run(args []string) int {
 		return cmdBucket(args[1:])
 	case "maven-repo":
 		return cmdMavenRepo(args[1:])
-	case "import":
-		return cmdImportSetup(args[1:])
+	case "machine":
+		return cmdMachine(args[1:])
 	case "adopt":
 		return cmdImport(args[1:])
-	case "export":
-		return cmdExport(args[1:])
-	case "audit":
-		return cmdAudit(args[1:])
 	case "digest":
 		return cmdDigest(args[1:])
-	case "check":
-		return cmdCheck(args[1:])
-	case "sync":
-		return cmdSyncProfiles(args[1:])
 	case "profile":
 		return cmdProfile(args[1:])
+	// The bare verbs these replaced were released two days ago and read
+	// as five unrelated top-level commands whose subject you had to
+	// remember. Naming the subject is the point, so they are not kept as
+	// aliases -- but "unknown command" would be a poor way to find that
+	// out.
+	case "export", "import", "audit", "check", "sync":
+		return movedCommand(args[0])
 	case "why":
 		return cmdWhy(args[1:])
 	case "auth":
@@ -279,17 +278,19 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr)
 
 	section("profiles -- what a repository needs")
-	cmd("goop check <file> [profile...]", "compare this machine to the profiles a file declares; exit 3 on deviation")
+	cmd("goop profile check <file> [profile...]", "compare this machine to the profiles a file declares; exit 3 on deviation")
 	cmd("", "reads receipts only -- no bucket, no network. A package outside the profile is never a deviation")
-	cmd("goop sync <file> [profile...]", "install what the file requires and is missing; idempotent, no prior state needed")
-	cmd("goop profile export --out <file> --profile <name>...", "maintainer: pin local profiles to a file, versions and manifest digests from receipts")
-	cmd("goop profile clone <file> <name>", "take a profile from a file as a local, editable one")
+	cmd("", "membership counts: a package filed under another profile does not match the file")
+	cmd("goop profile sync <file> [profile...]", "install what the file requires and is missing; idempotent, no prior state needed")
+	cmd("", "already-installed packages are only re-filed, never reinstalled")
+	cmd("goop profile export --out <file> --profile <name>...", "")
+	cmd("", "maintainer: pin local profiles to a file, versions and manifest digests from receipts")
 	fmt.Fprintln(os.Stderr)
 
 	section("whole machine")
-	cmd("goop export [--out <file>]", "capture this machine: its buckets and every installed package")
-	cmd("goop import <file>", "replay a capture: configure its buckets, then install its packages")
-	cmd("goop audit <file>", "compare this machine to a capture; exit 3 on any difference, either way")
+	cmd("goop machine export [--out <file>]", "capture this machine: its buckets and every installed package")
+	cmd("goop machine restore <file>", "replay a capture: configure its buckets, then install its packages")
+	cmd("goop machine audit <file>", "compare this machine to a capture; exit 3 on any difference, either way")
 	cmd("goop adopt [name]...", "adopt apps installed by a real Scoop, without touching Scoop's own files")
 	cmd("goop digest <name>... | --all [--recheck]", "record a manifest digest for installs that have none (older goop, or adopted)")
 	cmd("", "only when the bucket still offers that exact version and every recorded field matches")
@@ -404,7 +405,7 @@ func appKnown(name string) bool {
 
 func cmdProfile(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: goop profile <use|list|show|add|remove|reset|export|clone> ...")
+		fmt.Fprintln(os.Stderr, "usage: goop profile <use|list|show|add|remove|reset|export|sync|check> ...")
 		return 2
 	}
 	switch args[0] {
@@ -446,7 +447,7 @@ func cmdProfile(args []string) int {
 		for _, app := range args[2:] {
 			// A profile may list an app that isn't installed yet (that's
 			// the point of declarative membership), but a name no bucket
-			// carries is a typo -- silently accepting it means `goop sync`
+			// carries is a typo -- silently accepting it means `goop profile sync`
 			// fails much later, far from the mistake.
 			if !appKnown(app) {
 				ui.Fail("profile add: %q isn't installed and no configured bucket has it (typo? try `goop search %s`)", app, app)
@@ -559,31 +560,12 @@ func cmdProfile(args []string) int {
 			fmt.Println(ui.Dim("  version number will not be detected. `goop update <name>` re-installs"))
 			fmt.Println(ui.Dim("  and records one; re-export afterwards."))
 		}
-		fmt.Println(ui.Dim("  commit it with the code; `goop check " + out + "` should be green here"))
+		fmt.Println(ui.Dim("  commit it with the code; `goop profile check " + out + "` should be green here"))
 		return 0
-	case "clone":
-		if len(args) != 3 {
-			fmt.Fprintln(os.Stderr, "usage: goop profile clone <file> <profile>")
-			return 2
-		}
-		f, err := profileset.Load(args[1])
-		if err != nil {
-			ui.Fail("profile clone: %v", err)
-			return 1
-		}
-		src, ok := f.Profiles[args[2]]
-		if !ok {
-			ui.Fail("profile clone: no profile %q in %s (it has: %v)", args[2], args[1], f.Names())
-			return 1
-		}
-		d := profile.Definition{Name: args[2], Apps: src.SortedNames()}
-		if err := profile.Save(d); err != nil {
-			ui.Fail("profile clone: %v", err)
-			return 1
-		}
-		ui.Ok("cloned %s (%d package(s)) as a local profile", args[2], len(d.Apps))
-		fmt.Println(ui.Dim("  edit it with `goop profile add/remove`, then `goop profile export`"))
-		return 0
+	case "check":
+		return cmdCheck(args[1:])
+	case "sync":
+		return cmdSyncProfiles(args[1:])
 	case "show":
 		if len(args) != 2 {
 			fmt.Fprintln(os.Stderr, "usage: goop profile show <name>")
@@ -591,7 +573,7 @@ func cmdProfile(args []string) int {
 		}
 		// A profile that does not exist must say so. Printing it with
 		// "no members" reads as an empty profile, which is the same
-		// silence `goop check` refuses for a profile a file does not
+		// silence `goop profile check` refuses for a profile a file does not
 		// declare.
 		known, err := profile.List()
 		if err != nil {
@@ -638,7 +620,7 @@ func cmdProfile(args []string) int {
 		ui.Ok("profile reset to default (all members merged into default, named profiles removed)")
 		return 0
 	default:
-		fmt.Fprintln(os.Stderr, "usage: goop profile <use|list|show|add|remove|reset|export|clone> ...")
+		fmt.Fprintln(os.Stderr, "usage: goop profile <use|list|show|add|remove|reset|export|sync|check> ...")
 		return 2
 	}
 }
@@ -691,7 +673,7 @@ func cmdImport(names []string) int {
 	return exit
 }
 
-// cmdMigrate implements `goop migrate`: unlike `goop import` (which
+// cmdMigrate implements `goop migrate`: unlike `goop machine restore` (which
 // junctions straight at Scoop's own directories, so it keeps depending
 // on Scoop staying installed), this copies every detected bucket and app
 // into goop's own tree so the result is fully independent of Scoop --
@@ -2045,17 +2027,17 @@ func cmdConfig(args []string) int {
 // answers the same on a disconnected machine.
 func cmdCheck(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: goop check <file> [profile...]")
+		fmt.Fprintln(os.Stderr, "usage: goop profile check <file> [profile...]")
 		return 2
 	}
 	f, err := profileset.Load(args[0])
 	if err != nil {
-		ui.Fail("check: %v", err)
+		ui.Fail("profile check: %v", err)
 		return 1
 	}
 	deviations, err := installer.Check(f, args[1:])
 	if err != nil {
-		ui.Fail("check: %v", err)
+		ui.Fail("profile check: %v", err)
 		return 1
 	}
 	if len(deviations) == 0 {
@@ -2082,17 +2064,17 @@ func cmdCheck(args []string) int {
 // missing, leave everything else alone.
 func cmdSyncProfiles(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: goop sync <file> [profile...]")
+		fmt.Fprintln(os.Stderr, "usage: goop profile sync <file> [profile...]")
 		return 2
 	}
 	f, err := profileset.Load(args[0])
 	if err != nil {
-		ui.Fail("sync: %v", err)
+		ui.Fail("profile sync: %v", err)
 		return 1
 	}
 	fixed, errs, err := installer.SyncProfiles(f, args[1:])
 	if err != nil {
-		ui.Fail("sync: %v", err)
+		ui.Fail("profile sync: %v", err)
 		return 1
 	}
 	for _, d := range fixed {
@@ -2103,7 +2085,7 @@ func cmdSyncProfiles(args []string) int {
 		ui.Ok("%s: %s %s", d.Profile, d.Package, d.Want)
 	}
 	for _, name := range sortedKeys(errs) {
-		ui.Fail("sync %s: %v", name, errs[name])
+		ui.Fail("profile sync %s: %v", name, errs[name])
 	}
 	if len(errs) > 0 {
 		return 1
@@ -2126,7 +2108,7 @@ func cmdSyncProfiles(args []string) int {
 	// same line. Report what was actually verified.
 	sum, err := installer.Summarize(f, args[1:])
 	if err != nil {
-		ui.Fail("sync: %v", err)
+		ui.Fail("profile sync: %v", err)
 		return 1
 	}
 	if len(fixed) == 0 {
@@ -2169,7 +2151,7 @@ func cmdExport(args []string) int {
 		return 1
 	}
 	ui.Ok("captured %d package(s) and %d bucket(s) to %s", len(f.Apps), len(f.Buckets), out)
-	fmt.Println(ui.Dim("  replay it on another machine with `goop import " + out + "`"))
+	fmt.Println(ui.Dim("  replay it on another machine with `goop machine restore " + out + "`"))
 	return 0
 }
 
@@ -2311,17 +2293,17 @@ func cmdDigest(args []string) int {
 
 func cmdAudit(args []string) int {
 	if len(args) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: goop audit <file>")
+		fmt.Fprintln(os.Stderr, "usage: goop machine audit <file>")
 		return 2
 	}
 	f, err := setup.Load(args[0])
 	if err != nil {
-		ui.Fail("audit: %v", err)
+		ui.Fail("machine audit: %v", err)
 		return 1
 	}
 	deviations, err := installer.AuditSetup(f)
 	if err != nil {
-		ui.Fail("audit: %v", err)
+		ui.Fail("machine audit: %v", err)
 		return 1
 	}
 	if len(deviations) == 0 {

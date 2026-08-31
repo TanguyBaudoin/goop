@@ -227,7 +227,7 @@ func Install(spec string) (Record, error) {
 // InstallInto is Install, registering into a named profile instead of the
 // active one.
 //
-// `goop sync <file> chipA` knows which profile it is repairing, and the
+// `goop profile sync <file> chipA` knows which profile it is repairing, and the
 // active profile is usually something else entirely -- on a new machine
 // it is `default`. Registering there put a package the file assigns to
 // chipA into default instead, so re-syncing a profile silently emptied
@@ -968,7 +968,7 @@ func createShims(appName string, bins []manifest.BinEntry) error {
 		}
 
 		// Checked before anything is written. A shim whose target does not
-		// exist is worse than no shim: it looks installed, `goop check`
+		// exist is worse than no shim: it looks installed, `goop profile check`
 		// reports no deviation, and the failure only surfaces when someone runs
 		// the command. Every manifest hook has run by this point, so a file
 		// that is not there never will be -- usually a `bin` that does not

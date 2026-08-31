@@ -13,6 +13,33 @@ built from — quote it in bug reports.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking: the two planes now say which subject they act on.** Five
+  bare top-level verbs — `export`, `import`, `audit`, `check`, `sync` —
+  read as unrelated commands whose subject you had to remember. They were
+  never unrelated: the same three verbs applied to two subjects that have
+  nothing to do with each other.
+
+  | | writes a file | reads and installs | reads and compares |
+  |---|---|---|---|
+  | this machine | `goop machine export` | `goop machine restore` | `goop machine audit` |
+  | a repository | `goop profile export` | `goop profile sync` | `goop profile check` |
+
+  The old names are not kept as aliases — aliases are the clutter this
+  removes — but typing one tells you where it went rather than
+  "unknown command".
+
+  `goop adopt` (take over a real Scoop install) and `goop digest` are
+  unchanged and stay top-level: neither belongs to a plane.
+
+- **Removed `goop profile clone`.** It created a local profile from a
+  file without installing anything, and since profile membership became
+  part of conformance, `goop profile sync` does exactly that *and* the
+  installs. Its own workflow never worked either: clone, edit,
+  re-export — but `profile export` refuses a member that is not
+  installed, so a sync was required anyway.
+
 ### Added
 
 - `goop digest <name>... | --all [--recheck]` records a manifest digest

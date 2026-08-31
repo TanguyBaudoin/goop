@@ -81,7 +81,7 @@ remain runnable if goop is abandoned. But goop records its own
 `goop-install.json` rather than Scoop's `install.json`, so Scoop taking
 over such a tree would know how to run those packages and not which
 bucket to update them from. The direction that *is* verified is the other
-one: `goop import` adopts a real Scoop installation without reinstalling
+one: `goop adopt` takes over a real Scoop installation without reinstalling
 anything (CPT-07). Handing a tree back has never been performed or
 documented, which is what the status now says.
 
@@ -194,12 +194,12 @@ so a soft grouping of names was indistinguishable from a pinned,
 auditable artifact. There are now two planes that never touch:
 
 - **What a project needs** — one JSON file, committed with the code,
-  holding any number of profiles. `goop check <file> [profile...]` and
-  `goop sync <file> [profile...]`. A package outside the named profiles
+  holding any number of profiles. `goop profile check <file> [profile...]`
+  and `goop profile sync <file> [profile...]`. A package outside the named profiles
   is never a deviation, and naming a profile the file does not declare is
   an error rather than silence.
-- **What is on this machine** — `goop export` / `goop import` /
-  `goop audit`, buckets and all, shaped after `scoop export`. Stale by
+- **What is on this machine** — `goop machine export` / `restore` /
+  `audit`, buckets and all, shaped after `scoop export`. Stale by
   tomorrow, and deliberately not something to commit.
 
 **FR-11 is Partial, and the gap is deliberate.** A pin carries a version
@@ -496,7 +496,7 @@ settled during implementation. All are recorded here.
 
 **D7's reasoning, since it will look like an omission otherwise.** goop
 exists to freeze toolchains. A binary that updates itself between two
-`goop sync` runs changes the engine interpreting your pins without
+`goop profile sync` runs changes the engine interpreting your pins without
 being asked, possibly mid-build — which is precisely what `goop hold`
 prevents for packages. Applying a weaker rule to goop itself would be
 incoherent. Scoop behaves the same way and never updates unasked.
@@ -595,6 +595,6 @@ Collected from the statuses above, in the order they should be addressed.
    machinery works; the corpus never uses it.
 7. **Signature verification is manual** (A5, FR-41). No manifest supplies
    a signature, so nothing verifies automatically.
-8. **Reversibility is one-way in practice** (NR-07). `goop import` adopts
+8. **Reversibility is one-way in practice** (NR-07). `goop adopt` takes over
    a Scoop tree; handing one back to Scoop has never been performed or
    documented, because goop writes its own install metadata.

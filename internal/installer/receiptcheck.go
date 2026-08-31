@@ -1,7 +1,8 @@
 // Package-internal helpers for reading what a receipt promised against
 // what is on disk. They outlived the lockfile machinery they were
-// written for: a version match is not conformance, and both `goop check`
-// and `goop audit` need to look at the files themselves.
+// written for: a version match is not conformance, and both
+// `goop profile check` and `goop machine audit` need to look at the
+// files themselves.
 package installer
 
 import (
