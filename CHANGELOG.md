@@ -11,6 +11,47 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
+## [Unreleased]
+
+### Changed
+
+- **Commands that change the machine show what they will do and ask.**
+  Same shape everywhere: a table of what is about to happen, then a
+  question.
+
+  | | asks when |
+  |---|---|
+  | `goop install` | dependencies or extraction helpers bring in something you did not name |
+  | `goop uninstall` | always — with the cascade included |
+  | `goop update` | there is something to update |
+  | `goop self-update` | a different build is available |
+  | `goop profile sync` | there are deviations to fix |
+  | `goop profile reset` | there are named profiles to delete |
+  | `goop machine restore` | always |
+
+  Two rules behind that. **A prompt only appears where someone can
+  answer it** — a pipe, CI or a scheduled task proceeds, because these
+  are commands someone ran on purpose and refusing would make them
+  unusable unattended. `goop uninstall --all` keeps its stricter rule: it
+  refuses outright without a terminal, because "remove everything" by
+  accident has no undo. **`-y` skips the question**, and `--dry-run`
+  stops after the plan on `update` and `self-update`.
+
+  `goop install jq` still just installs jq. Prompting when nothing
+  unexpected happens is friction, so the question appears only when one
+  name turns into four — which is what apt does, for the same reason.
+
+- **`goop uninstall` shows the cascade before removing anything.**
+  Uninstall follows the packages that declare the target as a dependency,
+  so asking to remove one can remove three. That was invisible until it
+  had happened. Extraction helpers are still excluded: removing 7zip does
+  not offer to remove everything ever unpacked with it.
+
+- **`goop self-update` shows the versions before downloading.** It reads
+  the version from the release redirect — a request with no body, and
+  unlike the releases API not rate limited — so 14 MB is only spent after
+  the answer, not before the question.
+
 ## [0.5.0] — 2026-08-31
 
 Two gaps in the profile commands, both reported from use: there was no

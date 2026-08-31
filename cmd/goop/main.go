@@ -216,12 +216,13 @@ func printUsage() {
 	}
 
 	section("install & remove")
-	cmd("goop install <spec>... [--profile <name>]", "spec: [bucket/]name[@constraint], e.g. jq, extras/mpv, jq@1.8.2")
+	cmd("goop install <spec>... [--profile <name>] [-y]", "spec: [bucket/]name[@constraint], e.g. jq, extras/mpv, jq@1.8.2")
 	cmd("", "--profile files them under that profile; without it they land in `default`")
+	cmd("", "asks only when dependencies or extraction helpers bring in something you did not name")
 	cmd("", "refreshes buckets first if older than 3h (--no-update skips), same as Scoop")
 	cmd("", "depends resolve recursively, with cycle + conflict detection (A4)")
 	cmd("", "or maven:[reponame/]groupId:artifactId:version:classifier:packaging -- needs `goop maven-repo add` first")
-	cmd("goop uninstall <name>... [--force]", "refuses if still referenced by another profile unless --force (see `goop why`)")
+	cmd("goop uninstall <name>... [--force] [-y]", "shows what goes, cascade included, and asks; --force ignores the profile safety net")
 	cmd("goop uninstall --all [--force]", "remove every installed app; asks you to type a word to confirm")
 	cmd("", "there is no unattended form: it refuses when stdin is not a terminal")
 	cmd("goop update [name]... [--dry-run] [-y] [-v]", "shows what would change and asks before doing it; all installed if none given (FR-05)")
@@ -282,7 +283,7 @@ func printUsage() {
 	cmd("goop profile check <file> [profile...]", "compare this machine to the profiles a file declares; exit 3 on deviation")
 	cmd("", "reads receipts only -- no bucket, no network. A package outside the profile is never a deviation")
 	cmd("", "membership counts: a package filed under another profile does not match the file")
-	cmd("goop profile sync <file> [profile...]", "install what the file requires and is missing; idempotent, no prior state needed")
+	cmd("goop profile sync <file> [profile...] [-y]", "install what the file requires and is missing; idempotent, no prior state needed")
 	cmd("", "already-installed packages are only re-filed, never reinstalled")
 	cmd("goop profile export --out <file> --profile <name>...", "")
 	cmd("", "maintainer: pin local profiles to a file, versions and manifest digests from receipts")
@@ -344,7 +345,7 @@ func printUsage() {
 
 	section("about")
 	cmd("goop version", "goop's own version, commit and build date -- quote it in bug reports")
-	cmd("goop self-update [--force]", "replace goop itself with the current release; never automatic (D7)")
+	cmd("goop self-update [--dry-run] [-y] [--force]", "shows the running and available versions, then asks; never automatic (D7)")
 	cmd("", "refuses to go backwards unless --force -- a local build is not an older release")
 	fmt.Fprintln(os.Stderr)
 
@@ -611,11 +612,40 @@ func cmdProfile(args []string) int {
 			fmt.Fprintln(os.Stderr, "usage: goop profile reset")
 			return 2
 		}
+		// Every named profile at once, and nothing names them anywhere
+		// else -- so this is the one profile command whose result cannot
+		// be reconstructed. Say what goes before it goes.
+		named, err := profile.List()
+		if err != nil {
+			ui.Fail("profile reset: %v", err)
+			return 1
+		}
+		var doomed []string
+		for _, n := range named {
+			if n != profile.Default {
+				doomed = append(doomed, n)
+			}
+		}
+		if len(doomed) == 0 {
+			ui.Ok("nothing to reset: only the default profile exists")
+			return 0
+		}
+		fmt.Printf("\n%s\n", ui.Bold(fmt.Sprintf("%d profile(s) to delete", len(doomed))))
+		rows := make([][]string, len(doomed))
+		for i, n := range doomed {
+			d, _ := profile.Load(n)
+			rows[i] = []string{n, fmt.Sprintf("%d", len(d.Apps))}
+		}
+		fmt.Print(ui.Table([]string{"NAME", "MEMBERS"}, rows))
+		fmt.Println(ui.Dim("  their members merge into default; nothing is uninstalled"))
+		if !confirmDestructive("Delete them?") {
+			return cancelled()
+		}
 		if err := profile.Reset(); err != nil {
 			ui.Fail("profile reset: %v", err)
 			return 1
 		}
-		ui.Ok("profile reset to default (all members merged into default, named profiles removed)")
+		ui.Ok("reset to default: %d profile(s) deleted, members merged", len(doomed))
 		return 0
 	default:
 		fmt.Fprintln(os.Stderr, "usage: goop profile <list|show|add|remove|delete|reset|export|sync|check> ...")
@@ -651,7 +681,7 @@ func cmdImport(names []string) int {
 	if len(names) == 0 {
 		found, err := installer.ImportableApps(scoopRoot)
 		if err != nil {
-			ui.Fail("import: %v", err)
+			ui.Fail("machine restore: %v", err)
 			return 1
 		}
 		if len(found) == 0 {
@@ -828,7 +858,7 @@ func printMigrationReport(plan installer.MigrationPlan, bucketErrs map[string]er
 
 func cmdInstall(args []string) int {
 	var names []string
-	noUpdate := false
+	noUpdate, assumeYes := false, false
 	// Which profile the packages join is said here, on the command that
 	// installs them, rather than kept as a mode set days earlier.
 	profileName := profile.Default
@@ -836,6 +866,8 @@ func cmdInstall(args []string) int {
 		switch args[i] {
 		case "--no-update":
 			noUpdate = true
+		case "-y", "--yes":
+			assumeYes = true
 		case "--profile":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "goop install: --profile needs a name")
@@ -865,6 +897,14 @@ func cmdInstall(args []string) int {
 		} else if err := paths.MarkBucketsUpdated(); err != nil {
 			ui.Fail("bucket update: %v", err)
 		}
+	}
+
+	// Asking for one package can install four: declared dependencies, and
+	// the extraction helpers (7zip, innounp, dark) a manifest needs. That
+	// is the only surprising part of an install, so it is the only case
+	// worth a question -- installing exactly what was named goes ahead.
+	if !assumeYes && !confirmExtraInstalls(names) {
+		return cancelled()
 	}
 
 	errs := installer.InstallAll(names, profileName)
@@ -943,13 +983,15 @@ func sortedKeys(m map[string]error) []string {
 
 func cmdUninstall(args []string) int {
 	var names []string
-	force, all := false, false
+	force, all, assumeYes := false, false, false
 	for _, a := range args {
 		switch a {
 		case "--force":
 			force = true
 		case "--all":
 			all = true
+		case "-y", "--yes":
+			assumeYes = true
 		default:
 			names = append(names, a)
 		}
@@ -973,9 +1015,41 @@ func cmdUninstall(args []string) int {
 		return exit
 	}
 	if len(names) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: goop uninstall <name>... [--force] | --all [--force]")
+		fmt.Fprintln(os.Stderr, "usage: goop uninstall <name>... [--force] [-y] | --all [--force]")
 		return 2
 	}
+
+	// Uninstall cascades to the packages that declare the target as a
+	// dependency, so asking to remove one can remove three. Working that
+	// out first is the difference between a confirmation and a surprise.
+	plan, err := installer.PlanUninstall(names)
+	if err != nil {
+		ui.Fail("uninstall: %v", err)
+		return 1
+	}
+	for _, m := range plan.Missing {
+		ui.Warn("%s is not installed", m)
+	}
+	if plan.Total() == 0 {
+		return 1
+	}
+
+	fmt.Printf("\n%s\n", ui.Bold(fmt.Sprintf("%d package(s) to remove", plan.Total())))
+	rows := make([][]string, 0, plan.Total())
+	for _, n := range plan.Requested {
+		rows = append(rows, []string{n, ui.Dim("asked for")})
+	}
+	for _, n := range plan.Cascaded {
+		rows = append(rows, []string{n, ui.Yellow("depends on one of them")})
+	}
+	fmt.Print(ui.Table([]string{"PACKAGE", "WHY"}, rows))
+	fmt.Println(ui.Dim("  data persisted by these packages goes with them; the download cache is kept"))
+
+	if !assumeYes && !confirmDestructive("Remove them?") {
+		return cancelled()
+	}
+	fmt.Println()
+
 	exit := 0
 	for _, name := range names {
 		if err := installer.Uninstall(name, force); err != nil {
@@ -2066,8 +2140,19 @@ func cmdCheck(args []string) int {
 // cmdSyncProfiles applies a profile file: install what is required and
 // missing, leave everything else alone.
 func cmdSyncProfiles(args []string) int {
+	var rest []string
+	assumeYes := false
+	for _, a := range args {
+		switch a {
+		case "-y", "--yes":
+			assumeYes = true
+		default:
+			rest = append(rest, a)
+		}
+	}
+	args = rest
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: goop profile sync <file> [profile...]")
+		fmt.Fprintln(os.Stderr, "usage: goop profile sync <file> [profile...] [-y]")
 		return 2
 	}
 	f, err := profileset.Load(args[0])
@@ -2075,6 +2160,32 @@ func cmdSyncProfiles(args []string) int {
 		ui.Fail("profile sync: %v", err)
 		return 1
 	}
+	// The same deviations `goop profile check` reports, shown before
+	// acting on them rather than narrated as they are fixed. A sync on a
+	// fresh machine installs everything the file names, which is worth
+	// seeing first.
+	pending, err := installer.Check(f, args[1:])
+	if err != nil {
+		ui.Fail("profile sync: %v", err)
+		return 1
+	}
+	if len(pending) > 0 && !assumeYes {
+		fmt.Printf("\n%s\n", ui.Bold(fmt.Sprintf("%d change(s) to make", len(pending))))
+		rows := make([][]string, len(pending))
+		for i, d := range pending {
+			got := ui.Yellow(d.Got)
+			if d.Got == "" {
+				got = ui.Red("-")
+			}
+			rows[i] = []string{d.Profile, d.Package, d.Want, got, ui.Dim(d.Reason)}
+		}
+		fmt.Print(ui.Table([]string{"PROFILE", "PACKAGE", "REQUIRED", "INSTALLED", "WHY"}, rows))
+		if !confirm("Apply them?") {
+			return cancelled()
+		}
+		fmt.Println()
+	}
+
 	fixed, errs, err := installer.SyncProfiles(f, args[1:])
 	if err != nil {
 		ui.Fail("profile sync: %v", err)
@@ -2161,25 +2272,45 @@ func cmdExport(args []string) int {
 // cmdImportSetup replays a captured machine.
 func cmdImportSetup(args []string) int {
 	if len(args) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: goop import <file>")
+		fmt.Fprintln(os.Stderr, "usage: goop machine restore <file>")
 		fmt.Fprintln(os.Stderr, ui.Dim("  to adopt apps installed by a real Scoop instead, use `goop adopt`"))
 		return 2
 	}
 	f, err := setup.Load(args[0])
 	if err != nil {
-		ui.Fail("import: %v", err)
+		ui.Fail("machine restore: %v", err)
 		return 1
 	}
+	// Replaying a capture configures buckets and installs everything in
+	// it -- potentially gigabytes on someone else's machine. Show the
+	// size of that before starting it.
+	fmt.Printf("\n%s\n", ui.Bold(fmt.Sprintf("restore %d package(s) and %d bucket(s)", len(f.Apps), len(f.Buckets))))
+	for _, b := range f.Buckets {
+		fmt.Printf("  %s %-20s %s\n", ui.Cyan(ui.Arrow), b.Name, ui.Dim(b.URL))
+	}
+	if len(f.Apps) > 0 {
+		names := make([]string, len(f.Apps))
+		for i, a := range f.Apps {
+			names[i] = a.Name
+		}
+		fmt.Println(ui.Dim("  " + strings.Join(names, ", ")))
+	}
+	fmt.Println(ui.Dim("  already-installed packages are left alone"))
+	if !confirm("Restore onto this machine?") {
+		return cancelled()
+	}
+	fmt.Println()
+
 	installed, errs, err := installer.ImportSetup(f)
 	if err != nil {
-		ui.Fail("import: %v", err)
+		ui.Fail("machine restore: %v", err)
 		return 1
 	}
 	for _, n := range installed {
 		ui.Ok("installed %s", n)
 	}
 	for _, n := range sortedKeys(errs) {
-		ui.Fail("import %s: %v", n, errs[n])
+		ui.Fail("machine restore %s: %v", n, errs[n])
 	}
 	if len(errs) > 0 {
 		return 1

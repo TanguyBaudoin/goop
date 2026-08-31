@@ -50,30 +50,70 @@ type Result struct {
 // Logf, if set, receives progress lines.
 var Logf = func(string, ...any) {}
 
-// Update downloads the current release and replaces the running binary
-// with it. currentVersion is only used for reporting.
+// Plan is what an update would do, worked out without downloading the
+// 14 MB binary: a checksum file of a few dozen bytes and one redirect.
+//
+// Splitting this out from the work is what lets goop show the versions
+// and ask before spending someone's bandwidth on a slow link.
+type Plan struct {
+	CurrentVersion string
+	// Available is the version the release redirect names. Empty when it
+	// could not be determined -- a courtesy, never a gate: the binary is
+	// still probed before anything is swapped.
+	Available      string
+	AlreadyCurrent bool
+
+	exe      string
+	base     string
+	checksum string
+}
+
+// TargetPath is the binary that would be replaced. Worth showing before
+// asking: running this from a checkout replaces a locally built binary
+// with a published release.
+func (p Plan) TargetPath() string { return p.exe }
+
+// Check reports what an update would do, changing nothing.
+func Check(currentVersion string) (Plan, error) {
+	exe, err := runningBinary()
+	if err != nil {
+		return Plan{}, err
+	}
+	return checkAt(exe, ReleaseBase, currentVersion)
+}
+
+// Update is Check followed by Apply, for callers with nothing to ask.
 func Update(currentVersion string, force bool) (Result, error) {
+	p, err := Check(currentVersion)
+	if err != nil {
+		return Result{}, err
+	}
+	return p.Apply(force)
+}
+
+func runningBinary() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return Result{}, fmt.Errorf("locating the running binary: %w", err)
+		return "", fmt.Errorf("locating the running binary: %w", err)
 	}
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}
-	return updateAt(exe, ReleaseBase, currentVersion, force)
+	return exe, nil
 }
 
-// updateAt is Update with the target and the release source given
-// explicitly.
+// checkAt is Check with the target and release source given explicitly.
 //
-// Split out to make the upgrade path testable at all. Update takes its
+// Split out to make the upgrade path testable at all. Check takes its
 // target from os.Executable(), which inside a test is the test binary --
-// so a test of Update would try to replace the thing running it. And the
+// so a test of it would try to replace the thing running it. And the
 // interesting direction, upgrading to something newer, could otherwise
 // only ever be exercised by publishing two releases and hoping, since a
 // freshly released binary and the latest release are by definition the
 // same version.
-func updateAt(exe, base, currentVersion string, force bool) (Result, error) {
+func checkAt(exe, base, currentVersion string) (Plan, error) {
+	p := Plan{CurrentVersion: currentVersion, exe: exe, base: base}
+
 	// A leftover from a previous update, which could not be deleted then
 	// because it was still the running image.
 	_ = os.Remove(exe + oldSuffix)
@@ -83,25 +123,64 @@ func updateAt(exe, base, currentVersion string, force bool) (Result, error) {
 	Logf("checking for a newer release")
 	sums, err := downloader.FetchText(base + "/checksums.txt")
 	if err != nil {
-		return Result{}, fmt.Errorf("fetching checksums.txt: %w", err)
+		return Plan{}, fmt.Errorf("fetching checksums.txt: %w", err)
 	}
 	want, err := parseChecksum(sums)
 	if err != nil {
-		return Result{}, err
+		return Plan{}, err
 	}
+	p.checksum = want
 
 	have, err := fileSHA256(exe)
 	if err != nil {
-		return Result{}, fmt.Errorf("hashing the running binary: %w", err)
+		return Plan{}, fmt.Errorf("hashing the running binary: %w", err)
 	}
 	if have == want {
-		return Result{AlreadyCurrent: true, OldVersion: currentVersion, NewVersion: currentVersion, Path: exe}, nil
+		p.AlreadyCurrent = true
+		p.Available = currentVersion
+		return p, nil
+	}
+
+	// Best effort, and deliberately so: knowing the version before
+	// downloading is a courtesy to whoever is being asked to confirm, not
+	// something the update depends on. The downloaded binary is still run
+	// and its own reported version checked before any swap.
+	p.Available = availableVersion(base)
+	return p, nil
+}
+
+// availableVersion reads the tag out of the release redirect. GitHub
+// answers /releases/latest/download/<asset> with a redirect naming the
+// tag, so this costs a request with no body -- and unlike the releases
+// API it is not rate limited.
+func availableVersion(base string) string {
+	target, err := downloader.RedirectTarget(base + "/checksums.txt")
+	if err != nil || target == "" {
+		return ""
+	}
+	const marker = "/releases/download/"
+	i := strings.Index(target, marker)
+	if i < 0 {
+		return ""
+	}
+	rest := target[i+len(marker):]
+	tag, _, ok := strings.Cut(rest, "/")
+	if !ok {
+		return ""
+	}
+	return strings.TrimPrefix(tag, "v")
+}
+
+// Apply downloads the release this plan describes and swaps it in.
+func (p Plan) Apply(force bool) (Result, error) {
+	if p.AlreadyCurrent {
+		return Result{AlreadyCurrent: true, OldVersion: p.CurrentVersion, NewVersion: p.CurrentVersion, Path: p.exe}, nil
 	}
 
 	// Downloaded through goop's own client, so proxy, per-host auth and
 	// retries all apply, and Get verifies the hash before returning.
 	Logf("downloading the new binary")
-	staged, err := downloader.Get(paths.Cache(), base+"/goop.exe", "goop.exe", "sha256:"+want)
+	staged, err := downloader.Get(paths.Cache(), p.base+"/goop.exe", "goop.exe", "sha256:"+p.checksum)
 	if err != nil {
 		return Result{}, fmt.Errorf("downloading goop.exe: %w", err)
 	}
@@ -120,16 +199,16 @@ func updateAt(exe, base, currentVersion string, force bool) (Result, error) {
 	// published one of the same version, and a developer running this
 	// from a checkout would otherwise have their build silently replaced
 	// by an older release.
-	if !force && vercmp.Compare(newVersion, currentVersion) < 0 {
+	if !force && vercmp.Compare(newVersion, p.CurrentVersion) < 0 {
 		return Result{}, fmt.Errorf(
 			"the current release is %s, older than the %s you are running -- pass --force to install it anyway",
-			newVersion, currentVersion)
+			newVersion, p.CurrentVersion)
 	}
 
-	if err := swap(exe, staged); err != nil {
+	if err := swap(p.exe, staged); err != nil {
 		return Result{}, err
 	}
-	return Result{OldVersion: currentVersion, NewVersion: newVersion, Path: exe}, nil
+	return Result{OldVersion: p.CurrentVersion, NewVersion: newVersion, Path: p.exe}, nil
 }
 
 // swap puts staged at exe, moving the running image aside first and

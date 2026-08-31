@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"sort"
@@ -107,9 +106,8 @@ func cmdUpdate(args []string) int {
 		}
 		return 0
 	}
-	if !assumeYes && !confirmUpdate(len(changing)) {
-		fmt.Println(ui.Dim("nothing was changed"))
-		return 1
+	if !assumeYes && !confirm(fmt.Sprintf("Update %s?", ui.Bold(fmt.Sprintf("%d package(s)", len(changing))))) {
+		return cancelled()
 	}
 	fmt.Println()
 
@@ -153,28 +151,6 @@ func cmdUpdate(args []string) int {
 		return 1
 	}
 	return 0
-}
-
-// confirmUpdate asks, but only where there is someone to ask. A
-// non-interactive run -- CI, a pipe, a scheduled task -- proceeds: this
-// is a routine operation, not a destructive one, and refusing there
-// would make `goop update` unusable unattended.
-func confirmUpdate(n int) bool {
-	if !ui.IsTerminal(os.Stdin) {
-		return true
-	}
-	fmt.Printf("\nUpdate %s? [Y/n] ", ui.Bold(fmt.Sprintf("%d package(s)", n)))
-	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
-	if err != nil && line == "" {
-		fmt.Println()
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(line)) {
-	case "", "y", "yes", "o", "oui":
-		return true
-	default:
-		return false
-	}
 }
 
 // refreshBuckets updates every bucket, naming each and how long it took.

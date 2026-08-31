@@ -423,3 +423,83 @@ func readCurrentRecord(appName string) (Record, bool) {
 	// straight out of the directory before giving up.
 	return readRecord(current)
 }
+
+// UninstallPlan is everything `goop uninstall <name>` would remove.
+//
+// Uninstall cascades to the packages that declare the target as a
+// dependency, which is the part that surprises people: asking to remove
+// one package can remove three. Working it out first makes that
+// visible before anything is deleted.
+type UninstallPlan struct {
+	Requested []string
+	Cascaded  []string // pulled in because they depend on something requested
+	Missing   []string // asked for but not installed
+}
+
+// Total is how many packages would actually be removed.
+func (p UninstallPlan) Total() int { return len(p.Requested) + len(p.Cascaded) }
+
+// PlanUninstall works out what removing names would take with it,
+// touching nothing.
+func PlanUninstall(names []string) (UninstallPlan, error) {
+	var p UninstallPlan
+
+	// Everything asked for first, so a package that is both named and
+	// reachable as a dependent is labelled "asked for" rather than
+	// "depends on one of them" -- which was wrong, and confusing in the
+	// one place the label has to be trusted.
+	requested := map[string]bool{}
+	for _, name := range names {
+		if requested[name] {
+			continue
+		}
+		if _, ok := readCurrentRecord(name); !ok {
+			p.Missing = append(p.Missing, name)
+			continue
+		}
+		requested[name] = true
+		p.Requested = append(p.Requested, name)
+	}
+
+	seen := map[string]bool{}
+	var walk func(string) error
+	walk = func(name string) error {
+		if seen[name] {
+			return nil
+		}
+		seen[name] = true
+		deps, err := dependentsOf(name)
+		if err != nil {
+			return err
+		}
+		for _, d := range deps {
+			if !requested[d] && !seen[d] {
+				p.Cascaded = append(p.Cascaded, d)
+			}
+			if err := walk(d); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, name := range p.Requested {
+		if err := walk(name); err != nil {
+			return UninstallPlan{}, err
+		}
+	}
+
+	sort.Strings(p.Requested)
+	sort.Strings(p.Cascaded)
+	sort.Strings(p.Missing)
+	return p, nil
+}
+
+// IsInstalled reports whether appName has a finished install.
+//
+// "Finished" matters: a receipt committed by the rename with shims that
+// never got created describes a package that does not work, and treating
+// it as present is what let a broken install hide.
+func IsInstalled(appName string) bool {
+	rec, ok := readCurrentRecord(appName)
+	return ok && rec.Ready()
+}

@@ -142,3 +142,13 @@ func TestUpdateAt_RefusesDowngrade(t *testing.T) {
 		t.Errorf("forced version = %q, want 0.1.0", res.NewVersion)
 	}
 }
+
+// updateAt runs both phases against an explicit target and release
+// source, the way `goop self-update` does with a prompt between them.
+func updateAt(exe, base, currentVersion string, force bool) (Result, error) {
+	p, err := checkAt(exe, base, currentVersion)
+	if err != nil {
+		return Result{}, err
+	}
+	return p.Apply(force)
+}
