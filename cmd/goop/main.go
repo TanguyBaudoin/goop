@@ -2185,6 +2185,10 @@ func cmdSyncProfiles(args []string) int {
 		return 1
 	}
 	for _, d := range fixed {
+		if strings.HasPrefix(d.Reason, "not filed under") {
+			ui.Ok("%s: %s filed under %s (was %s)", d.Profile, d.Package, d.Profile, whereItWas(d.Reason))
+			continue
+		}
 		ui.Ok("%s: %s %s", d.Profile, d.Package, d.Want)
 	}
 	for _, name := range sortedKeys(errs) {
@@ -2206,10 +2210,32 @@ func cmdSyncProfiles(args []string) int {
 		fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("The bucket has changed what this version does. Re-pin with `goop profile export`, or restore the manifest."))
 		return 3
 	}
+	// "nothing to do" said nothing about whether anything had been
+	// checked -- an empty file and a fully conformant machine printed the
+	// same line. Report what was actually verified.
+	sum, err := installer.Summarize(f, args[1:])
+	if err != nil {
+		ui.Fail("sync: %v", err)
+		return 1
+	}
 	if len(fixed) == 0 {
-		fmt.Println(ui.Dim("nothing to do"))
+		ui.Ok("already conformant: %d package(s) across %s",
+			sum.Packages, strings.Join(sum.Profiles, ", "))
+	} else {
+		ui.Ok("conformant: %d package(s) across %s (%d changed)",
+			sum.Packages, strings.Join(sum.Profiles, ", "), len(fixed))
 	}
 	return 0
+}
+
+// whereItWas pulls the profile list out of a "not filed under X (it is
+// in Y, Z)" reason, for a message that says what changed.
+func whereItWas(reason string) string {
+	_, rest, ok := strings.Cut(reason, "(it is in ")
+	if !ok {
+		return "no profile"
+	}
+	return strings.TrimSuffix(rest, ")")
 }
 
 // cmdExport captures this machine to a file: its buckets and everything

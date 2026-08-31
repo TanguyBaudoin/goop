@@ -2,7 +2,10 @@ package installer
 
 import (
 	"sort"
+	"strconv"
+	"strings"
 
+	"github.com/TanguyBaudoin/goop/internal/profile"
 	"github.com/TanguyBaudoin/goop/internal/profileset"
 )
 
@@ -83,7 +86,31 @@ func checkOne(profileName, pkg string, pin profileset.Pin) (Deviation, bool) {
 		d.Reason = "broken shim: " + missing
 		return d, true
 	}
+	// The file says which profile this package belongs to. A machine
+	// where it is installed but filed somewhere else does not match the
+	// file -- which is what someone means by "I synced ide and idea is
+	// still under default".
+	//
+	// Only absence from the declared profile counts. Extra local
+	// memberships are the machine's own business, the same way a package
+	// outside every profile is never a deviation.
+	if in, err := profile.ContainingProfiles(pkg); err == nil && !contains(in, profileName) {
+		d.Reason = "not filed under " + strconv.Quote(profileName)
+		if len(in) > 0 {
+			d.Reason += " (it is in " + strings.Join(in, ", ") + ")"
+		}
+		return d, true
+	}
 	return Deviation{}, false
+}
+
+func contains(haystack []string, needle string) bool {
+	for _, h := range haystack {
+		if h == needle {
+			return true
+		}
+	}
+	return false
 }
 
 // SyncProfiles installs what the named profiles require and is not there.
@@ -99,6 +126,17 @@ func SyncProfiles(f profileset.File, names []string) ([]Deviation, map[string]er
 	fixed := make([]Deviation, 0, len(deviations))
 	errs := map[string]error{}
 	for _, d := range deviations {
+		// A package already installed at the right version needs no
+		// install -- only filing. Running one anyway would re-download
+		// and re-extract a working package to fix a line in a text file.
+		if strings.HasPrefix(d.Reason, "not filed under") {
+			if err := profile.Add(d.Profile, d.Package); err != nil {
+				errs[d.Package] = err
+				continue
+			}
+			fixed = append(fixed, d)
+			continue
+		}
 		spec := d.Package
 		if d.Want != "" {
 			spec = d.Package + "@" + d.Want
@@ -113,6 +151,27 @@ func SyncProfiles(f profileset.File, names []string) ([]Deviation, map[string]er
 		fixed = append(fixed, d)
 	}
 	return fixed, errs, nil
+}
+
+// SyncSummary is what a sync established, so it can report what it
+// verified rather than "nothing to do" -- which says nothing about
+// whether anything was actually checked.
+type SyncSummary struct {
+	Profiles []string
+	Packages int // packages the selected profiles declare
+}
+
+// Summarize describes what checking these profiles covers.
+func Summarize(f profileset.File, names []string) (SyncSummary, error) {
+	selected, err := f.Select(names)
+	if err != nil {
+		return SyncSummary{}, err
+	}
+	n := 0
+	for _, name := range selected {
+		n += len(f.Profiles[name].All())
+	}
+	return SyncSummary{Profiles: selected, Packages: n}, nil
 }
 
 // VerifyPins reports packages whose installed manifest digest does not

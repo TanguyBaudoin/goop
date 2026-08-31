@@ -8,6 +8,7 @@ import (
 
 	"github.com/TanguyBaudoin/goop/internal/manifest"
 	"github.com/TanguyBaudoin/goop/internal/paths"
+	"github.com/TanguyBaudoin/goop/internal/profile"
 	"github.com/TanguyBaudoin/goop/internal/profileset"
 )
 
@@ -26,7 +27,10 @@ func isolateRoot(t *testing.T) string {
 // fakeInstall writes the receipt an install would leave, without
 // installing: Check reads receipts and nothing else, which is what makes
 // it instant and offline, and is exactly what these tests exercise.
-func fakeInstall(t *testing.T, rec Record) {
+// profiles files the package locally, which conformance now includes:
+// the file says which profile a package belongs to, so a package
+// installed but filed elsewhere does not match it.
+func fakeInstall(t *testing.T, rec Record, profiles ...string) {
 	t.Helper()
 	dir := paths.AppCurrent(rec.Name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -38,6 +42,11 @@ func fakeInstall(t *testing.T, rec Record) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, recordFileName), data, 0o644); err != nil {
 		t.Fatal(err)
+	}
+	for _, p := range profiles {
+		if err := profile.Add(p, rec.Name); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -76,7 +85,7 @@ func checkReason(t *testing.T, f profileset.File) string {
 
 func TestCheck_Conformant(t *testing.T) {
 	isolateRoot(t)
-	fakeInstall(t, Record{Name: "jq", Version: "1.8.2", State: "ready", ManifestDigest: "sha256:aa"})
+	fakeInstall(t, Record{Name: "jq", Version: "1.8.2", State: "ready", ManifestDigest: "sha256:aa"}, "chipa")
 	if got := checkReason(t, oneProfile("jq", profileset.Pin{Version: "1.8.2", Hash: "sha256:aa"})); got != "" {
 		t.Errorf("expected conformance, got %q", got)
 	}
@@ -143,7 +152,7 @@ func TestCheck_Reasons(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			isolateRoot(t)
 			if tc.rec != nil {
-				fakeInstall(t, *tc.rec)
+				fakeInstall(t, *tc.rec, "chipa")
 			}
 			if got := checkReason(t, oneProfile("jq", tc.pin)); got != tc.want {
 				t.Errorf("reason = %q, want %q", got, tc.want)
@@ -158,7 +167,7 @@ func TestCheck_BrokenShim(t *testing.T) {
 	fakeInstall(t, Record{
 		Name: "jq", Version: "1.8.2", State: "ready",
 		Bin: []manifest.BinEntry{{Name: "jq"}},
-	})
+	}, "chipa")
 
 	writeShim(t, "jq", filepath.Join(root, "nowhere", "jq.exe"))
 	if got := checkReason(t, oneProfile("jq", profileset.Pin{Version: "1.8.2"})); got != "broken shim: jq" {
@@ -179,7 +188,7 @@ func TestCheck_BrokenShim(t *testing.T) {
 // machine have what the repository needs", not "is this machine clean".
 func TestCheck_IgnoresPackagesOutsideTheProfile(t *testing.T) {
 	isolateRoot(t)
-	fakeInstall(t, Record{Name: "jq", Version: "1.8.2", State: "ready"})
+	fakeInstall(t, Record{Name: "jq", Version: "1.8.2", State: "ready"}, "chipa")
 	fakeInstall(t, Record{Name: "unrelated", Version: "9.9", State: "ready"})
 	fakeInstall(t, Record{Name: "also-broken", Version: "1.0", State: "pending"})
 
@@ -200,7 +209,7 @@ func TestCheck_SelectionIsPerProfile(t *testing.T) {
 		"baseline.tool": {Packages: map[string]profileset.Pin{"gsudo": {Version: "2.6.1"}}},
 		"chipa":         {Packages: map[string]profileset.Pin{"jq": {Version: "1.8.2"}}},
 	}}
-	fakeInstall(t, Record{Name: "gsudo", Version: "2.6.1", State: "ready"})
+	fakeInstall(t, Record{Name: "gsudo", Version: "2.6.1", State: "ready"}, "baseline.tool")
 
 	devs, err := Check(f, []string{"chipa"})
 	if err != nil {
@@ -276,5 +285,39 @@ func TestExportProfiles_ReportsPinsWithNoDigest(t *testing.T) {
 	// It is still exported -- a version-only pin is weaker, not useless.
 	if got := rep.File.Profiles["chipa"].Packages["gsudo"]; got.Version != "2.6.1" || got.Hash != "" {
 		t.Errorf("gsudo pin = %+v", got)
+	}
+}
+
+// The file says which profile a package belongs to. Installing it by
+// hand first puts it in `default`, and a sync that left it there did not
+// make the machine match the file -- reported as "I synced ide and idea
+// is still under default".
+func TestCheck_MembershipIsPartOfConformance(t *testing.T) {
+	isolateRoot(t)
+	fakeInstall(t, Record{Name: "jq", Version: "1.8.2", State: "ready"}, profile.Default)
+
+	got := checkReason(t, oneProfile("jq", profileset.Pin{Version: "1.8.2"}))
+	if got != `not filed under "chipa" (it is in default)` {
+		t.Errorf("reason = %q", got)
+	}
+
+	// Filing it is enough. Nothing about the install changed, so a sync
+	// must not reinstall a working package to fix a line in a text file.
+	if err := profile.Add("chipa", "jq"); err != nil {
+		t.Fatal(err)
+	}
+	if got := checkReason(t, oneProfile("jq", profileset.Pin{Version: "1.8.2"})); got != "" {
+		t.Errorf("after filing: %q, want conformant", got)
+	}
+}
+
+// Extra local memberships are the machine's own business, exactly like a
+// package outside every profile.
+func TestCheck_ExtraMembershipsAreNotDeviations(t *testing.T) {
+	isolateRoot(t)
+	fakeInstall(t, Record{Name: "jq", Version: "1.8.2", State: "ready"}, "chipa", "my-own-grouping")
+
+	if got := checkReason(t, oneProfile("jq", profileset.Pin{Version: "1.8.2"})); got != "" {
+		t.Errorf("reason = %q, want conformant", got)
 	}
 }
