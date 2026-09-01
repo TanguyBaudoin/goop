@@ -172,9 +172,26 @@ func TestGet_ConcurrentDifferentPackagesRunInParallel(t *testing.T) {
 			t.Fatalf("download %d: %v", i, err)
 		}
 	}
-	// Sequential would take n*perRequestDelay; concurrent should be well
-	// under half that even with scheduling overhead.
-	if elapsed > (n*perRequestDelay)/2 {
-		t.Fatalf("took %v, expected well under %v if downloads ran in parallel", elapsed, n*perRequestDelay)
+	// What this proves is "concurrent, not sequential". Sequential cannot
+	// finish in less than n*perRequestDelay, so any bar below that is
+	// evidence of overlap; the margin only decides how much CPU
+	// contention the test tolerates before calling a real result a
+	// failure.
+	//
+	// It used to demand half of sequential, which a shared CI runner
+	// missed at 548ms against a 450ms bar -- a run that had in fact
+	// overlapped six 150ms downloads into well under the 900ms they would
+	// have taken one at a time. Two thirds keeps the claim (still
+	// unreachable sequentially, still 4x the ideal 150ms) without failing
+	// on a busy machine.
+	//
+	// The message quoted n*perRequestDelay while the check used half of
+	// it, so the failure read as self-contradictory -- "took 548ms,
+	// expected well under 900ms" -- and sent the next reader looking for
+	// an inverted comparison. It reports the bar it actually applies now.
+	limit := n * perRequestDelay * 2 / 3
+	if elapsed > limit {
+		t.Fatalf("took %v, want under %v -- sequential would need %v, so this did not overlap",
+			elapsed, limit, n*perRequestDelay)
 	}
 }
