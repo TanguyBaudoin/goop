@@ -26,6 +26,17 @@ type DownloadResult struct {
 // downloader.Get already skips anything cached and verified, so
 // re-running is cheap.
 func Download(spec string) (DownloadResult, error) {
+	return download(spec, false)
+}
+
+// download is Download, optionally without the per-asset log line.
+//
+// Prefetch runs several of these at once, and their lines interleaved
+// into an unreadable block that then repeated itself as each package was
+// installed -- the same URL announced twice, looking like it downloaded
+// twice. The fetch phase reports itself once instead, and the progress
+// bars show which transfers are live.
+func download(spec string, quiet bool) (DownloadResult, error) {
 	if err := paths.EnsureLayout(); err != nil {
 		return DownloadResult{}, err
 	}
@@ -52,7 +63,9 @@ func Download(spec string) (DownloadResult, error) {
 		if fragName == "" {
 			fragName = basenameWithoutQuery(assetURL)
 		}
-		Logf("%s: downloading %s", parsed.Name, assetURL)
+		if !quiet {
+			Logf("%s: downloading %s", parsed.Name, assetURL)
+		}
 		if _, err := downloader.Get(paths.Cache(), assetURL, fragName, resolved.Hashes[i]); err != nil {
 			return DownloadResult{}, err
 		}

@@ -155,6 +155,21 @@ func (tw *trackingWriter) Write(p []byte) (int, error) {
 // verifies it against expectedHash, and returns the local path of the
 // verified file. filename is used only to make the cache entry
 // recognizable; content identity comes from the hash.
+// IsCached reports whether Get would return immediately: the file is
+// already in the cache and still verifies against expectedHash.
+//
+// Exists so a caller can say "from cache" instead of announcing a
+// download that will not happen -- which, once a batch started fetching
+// everything up front, made every package look like it downloaded twice.
+func IsCached(cacheDir, filename, expectedHash string) bool {
+	parsed, err := manifest.ParseHash(expectedHash)
+	if err != nil {
+		return false
+	}
+	cachePath := filepath.Join(cacheDir, parsed.Digest[:16]+"-"+filename)
+	return verifyFile(cachePath, parsed) == nil
+}
+
 func Get(cacheDir, url, filename, expectedHash string) (string, error) {
 	parsed, err := manifest.ParseHash(expectedHash)
 	if err != nil {

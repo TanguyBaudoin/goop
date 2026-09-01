@@ -100,7 +100,7 @@ var (
 	reDone    = regexp.MustCompile(`^(installed|imported|uninstalled) `)
 	reAlready = regexp.MustCompile(`already (installed|imported|in sync)`)
 	reWarn    = regexp.MustCompile(`: (shortcuts|env_set|env_add_path|revert env_set|revert env_add_path|zip uses|uninstaller hook failed|skipped)\b`)
-	reStep    = regexp.MustCompile(`: (downloading|extracting|running|installing dependency|environment updated|removing|reverting|unlinking)`)
+	reStep    = regexp.MustCompile(`: (downloading|using cached|extracting|running|installing dependency|environment updated|removing|reverting|unlinking)`)
 )
 
 func styleLogLine(line string) string {
@@ -1034,15 +1034,27 @@ func cmdUninstall(args []string) int {
 		return 1
 	}
 
+	// Which profiles lose a member. goop cannot know that a tool shells
+	// out to `bash` -- manifests declare install-time dependencies, not
+	// runtime ones -- but it does know which groupings claimed a package,
+	// and staying silent about that is withholding the one hint it has.
+	claimedBy := func(name string) string {
+		profiles, err := profile.ContainingProfiles(name)
+		if err != nil || len(profiles) == 0 {
+			return ui.Dim("-")
+		}
+		return ui.Yellow(strings.Join(profiles, ", "))
+	}
+
 	fmt.Printf("\n%s\n", ui.Bold(fmt.Sprintf("%d package(s) to remove", plan.Total())))
 	rows := make([][]string, 0, plan.Total())
 	for _, n := range plan.Requested {
-		rows = append(rows, []string{n, ui.Dim("asked for")})
+		rows = append(rows, []string{n, ui.Dim("asked for"), claimedBy(n)})
 	}
 	for _, n := range plan.Cascaded {
-		rows = append(rows, []string{n, ui.Yellow("depends on one of them")})
+		rows = append(rows, []string{n, ui.Yellow("depends on one of them"), claimedBy(n)})
 	}
-	fmt.Print(ui.Table([]string{"PACKAGE", "WHY"}, rows))
+	fmt.Print(ui.Table([]string{"PACKAGE", "WHY", "LEAVES PROFILE"}, rows))
 	fmt.Println(ui.Dim("  data persisted by these packages goes with them; the download cache is kept"))
 
 	if !assumeYes && !confirmDestructive("Remove them?") {

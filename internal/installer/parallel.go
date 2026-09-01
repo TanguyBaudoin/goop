@@ -23,17 +23,23 @@ func defaultConcurrency() int {
 	return defaultConcurrencyValue
 }
 
-// InstallAll installs every name concurrently (bounded), the real-world
-// shape of A1's win: a batch of packages no longer waits on one
-// download before starting the next. Safe to call with any names,
-// including ones sharing a bucket, a cached asset, or a shim name --
-// the shared state that touches (the download cache, the shim master
-// file) is synchronized internally.
+// InstallAll fetches every name concurrently, then installs them one at
+// a time in the order given.
+//
+// The concurrency is where it pays -- see Prefetch for the measurements,
+// and for why the installs themselves are sequential. Safe to call with
+// any names, including ones sharing a bucket, a cached asset or a shim
+// name: the shared state that touches is synchronized internally.
 func InstallAll(names []string, profileName string) map[string]error {
-	return runConcurrent(names, defaultConcurrency(), func(name string) error {
-		_, err := InstallInto(name, profileName)
-		return err
-	})
+	Prefetch(names)
+
+	errs := make(map[string]error, len(names))
+	for _, name := range names {
+		if _, err := InstallInto(name, profileName); err != nil {
+			errs[name] = err
+		}
+	}
+	return errs
 }
 
 // UninstallAll uninstalls every installed app concurrently. Returns

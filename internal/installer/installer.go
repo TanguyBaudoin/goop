@@ -681,7 +681,15 @@ func placeAsset(appName, rawURL, expectedHash, extractDir, extractTo, staging st
 		fragName = basenameWithoutQuery(assetURL)
 	}
 
-	Logf("%s: downloading %s", appName, assetURL)
+	// A batch fetches everything first, so by the time an install runs
+	// its assets are usually already there. Announcing a download that
+	// does not happen made every package in a batch look like it
+	// downloaded twice.
+	if downloader.IsCached(paths.Cache(), fragName, expectedHash) {
+		Logf("%s: using cached %s", appName, fragName)
+	} else {
+		Logf("%s: downloading %s", appName, assetURL)
+	}
 	local, err := downloader.Get(paths.Cache(), assetURL, fragName, expectedHash)
 	if err != nil {
 		return "", err

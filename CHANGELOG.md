@@ -13,6 +13,45 @@ built from — quote it in bug reports.
 
 ## [Unreleased]
 
+### Changed
+
+- **A batch now fetches in parallel and installs one at a time.** Both
+  halves of the concurrency were parallel; only one of them was earning
+  anything.
+
+  Measured on six real packages into an empty root: 4.3s fully concurrent
+  against 7.3s fully sequential — but with the download cache already
+  warm, 0.9s against 1.2s. The whole win is the network. Extraction,
+  hooks and shims account for about 0.3s of the three-second gap, and
+  that 0.3s was buying two problems.
+
+  **An install hook can call any goop-installed binary** — the shims
+  directory is on its PATH. So when one package's `post_install` needs a
+  binary another package in the same batch provides, and the manifest
+  does not declare it as a dependency (Scoop manifests routinely do not
+  declare runtime tools like `bash`), which one won was a race.
+  Reproduced against a local bucket: **3 successes out of 6** on the same
+  command. It is now decided by the order you list them in — 8/8 one way,
+  0/4 the other, and predictable either way.
+
+  **And the output is readable.** Concurrent installs interleaved their
+  progress, so a failure in the middle of a batch was buried in traffic
+  from three other packages. Each package is now one contiguous block.
+  The fetch phase reports itself once (`fetching 4 package(s)`) instead
+  of emitting four interleaved URL lines, and an install whose asset is
+  already cached says `using cached` rather than announcing a download
+  that does not happen — which made every package in a batch look like it
+  downloaded twice.
+
+  `goop install`, `goop update` and `goop profile sync` all work this
+  way. Measured cost on a four-package batch: 4.0s against 3.9s.
+
+- **`goop uninstall` names the profiles that lose a member.** goop cannot
+  know that a tool shells out to `bash` — manifests declare install-time
+  dependencies, not runtime ones — but it does know which groupings
+  claimed a package, and saying nothing was withholding the one hint it
+  has.
+
 ### Added
 
 - **Tests for `internal/bucket` and `cmd/goop`**, the two largest

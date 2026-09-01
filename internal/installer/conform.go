@@ -4,7 +4,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/TanguyBaudoin/goop/internal/profile"
 	"github.com/TanguyBaudoin/goop/internal/profileset"
@@ -135,48 +134,35 @@ func SyncProfiles(f profileset.File, names []string) ([]Deviation, map[string]er
 		return nil, nil, err
 	}
 
-	concurrency := defaultConcurrency()
-	if concurrency > len(deviations) {
-		concurrency = len(deviations)
-	}
-	if concurrency < 1 {
-		concurrency = 1
-	}
-
-	var (
-		mu    sync.Mutex
-		wg    sync.WaitGroup
-		fixed = make([]Deviation, 0, len(deviations))
-		errs  = map[string]error{}
-		sem   = make(chan struct{}, concurrency)
-	)
+	// Fetch everything first, in parallel, then install one at a time.
+	// An install hook can call any goop-installed binary, so installing
+	// concurrently made "does the package I need exist yet" a race -- see
+	// Prefetch.
+	var specs []string
 	for _, d := range deviations {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(d Deviation) {
-			defer wg.Done()
-			defer func() { <-sem }()
-
-			err := fixOne(d)
-			mu.Lock()
-			defer mu.Unlock()
-			if err != nil {
-				errs[d.Package] = err
-				return
-			}
-			fixed = append(fixed, d)
-		}(d)
-	}
-	wg.Wait()
-
-	// Sorted, because concurrency decides the order things finish in and
-	// a report that shuffles between runs is hard to diff.
-	sort.Slice(fixed, func(i, j int) bool {
-		if fixed[i].Profile != fixed[j].Profile {
-			return fixed[i].Profile < fixed[j].Profile
+		if strings.HasPrefix(d.Reason, "not filed under") {
+			continue // nothing to download; only a line in a text file
 		}
-		return fixed[i].Package < fixed[j].Package
-	})
+		spec := d.Package
+		if d.Want != "" {
+			spec = d.Package + "@" + d.Want
+		}
+		specs = append(specs, spec)
+	}
+	Prefetch(specs)
+
+	fixed := make([]Deviation, 0, len(deviations))
+	errs := map[string]error{}
+	for _, d := range deviations {
+		if err := fixOne(d); err != nil {
+			errs[d.Package] = err
+			continue
+		}
+		fixed = append(fixed, d)
+	}
+
+	// Check already returns deviations sorted, so this order is stable
+	// and diffable without sorting again.
 	return fixed, errs, nil
 }
 
