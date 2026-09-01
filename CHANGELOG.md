@@ -46,6 +46,32 @@ built from — quote it in bug reports.
   `goop install`, `goop update` and `goop profile sync` all work this
   way. Measured cost on a four-package batch: 4.0s against 3.9s.
 
+### Fixed
+
+- **An update added a PATH entry and never removed the one it replaced.**
+  `env_add_path` names a *versioned* directory, so each update's entry is
+  a different string from the last. Uninstall reverses environment
+  entries; an update supersedes a version rather than uninstalling it, so
+  nothing ever did.
+
+  Found on a real machine after a few months: **17 goop entries under
+  `apps/`, 8 pointing at versions no longer current and 5 at directories
+  that no longer exist.** Nothing had broken, because goop prepends and
+  the newest entry happened to win — but that is luck, not design, and
+  PATH does not grow forever for free.
+
+  An install now takes back the entries of the version it replaces,
+  keeping any the new version also wants: a manifest whose
+  `env_add_path` carries no version produces the same string on both
+  sides, and removing it would undo the install's own work.
+
+  **This does not clean up what earlier versions already left.** Those
+  entries have no receipt behind them any more, so goop cannot tell them
+  from something you added yourself. `goop reset <name>` rebuilds an
+  app's entries from its record; the rest is a manual edit for now.
+
+### Changed (continued)
+
 - **`goop uninstall` names the profiles that lose a member.** goop cannot
   know that a tool shells out to `bash` — manifests declare install-time
   dependencies, not runtime ones — but it does know which groupings

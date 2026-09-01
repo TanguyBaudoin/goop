@@ -384,6 +384,14 @@ func installResolved(appName, bucketName, archKey string, resolved manifest.Reso
 		Logf("%s: shim binary: %v", appName, err) // non-fatal, createShims reports it properly later
 	}
 
+	// The version being superseded, read before anything moves. Its
+	// environment entries have to be taken back once the new ones are
+	// known -- see supersedeEnv.
+	previous, hadPrevious := readCurrentRecord(appName)
+	if !hadPrevious {
+		previous = Record{}
+	}
+
 	versionDir := paths.AppVersion(appName, resolved.Version)
 	if rec, ok := readRecord(versionDir); ok && rec.Ready() {
 		if !quiet {
@@ -600,6 +608,16 @@ func installResolved(appName, bucketName, archKey string, resolved manifest.Reso
 			Logf("%s: psmodule: %v", appName, err) // non-fatal, same tier as shortcuts
 		}
 	}
+	// An update supersedes a version, it does not uninstall it, so
+	// revertEnv was never reached for the version being replaced -- and
+	// env_add_path entries name a *versioned* directory. Every update
+	// therefore added one and removed none. Found on a real machine after
+	// a few months: 17 goop entries in PATH, 8 of them pointing at
+	// versions no longer current and 5 at directories that no longer
+	// exist at all. Nothing broke, because goop prepends and the newest
+	// entry happened to win, but that is luck rather than design, and
+	// PATH does not grow forever for free.
+	supersedeEnv(appName, previous, envSet, envAddedPaths)
 	applyEnv(appName, envSet, envAddedPaths)
 
 	// Everything the install promises now exists, so the record can stop
@@ -1093,6 +1111,66 @@ func applyEnv(appName string, envSet map[string]string, envAddedPaths []string) 
 	if len(envSet) > 0 || len(envAddedPaths) > 0 {
 		Logf("%s: environment updated (already-open shells need restarting to see it)", appName)
 	}
+}
+
+// supersedeEnv takes back the environment entries of the version being
+// replaced that the new version does not also want.
+//
+// env_add_path names a versioned directory, so an update's new entry is
+// a different string from the old one and adding it leaves the old one
+// behind. Uninstall reverses entries; an update never uninstalls, so
+// nothing did. On a machine running goop for a few months that meant 17
+// PATH entries under apps/, 8 pointing at superseded versions and 5 at
+// directories that had since been cleaned up.
+//
+// Only entries absent from the new version are removed. A manifest that
+// adds a path with no version in it produces the same string on both
+// sides, and removing it here would undo what applyEnv is about to do.
+func supersedeEnv(appName string, previous Record, envSet map[string]string, envAddedPaths []string) {
+	staleSet, stalePaths := staleEnvEntries(previous, envSet, envAddedPaths)
+	if len(staleSet) == 0 && len(stalePaths) == 0 {
+		return
+	}
+	revertEnv(appName, staleSet, stalePaths)
+}
+
+// staleEnvEntries picks what the previous version left behind that the
+// new one does not want back.
+//
+// Split out from supersedeEnv so it can be tested: applying the result
+// writes to the real HKCU\Environment, and a test that did that would
+// edit the machine it runs on.
+//
+// Only entries absent from the new version count. A manifest that adds a
+// path with no version in it produces the same string on both sides, and
+// removing it would undo what applyEnv is about to do. env_set values are
+// replaced rather than accumulated, so only a variable the new version
+// stops setting needs unsetting.
+func staleEnvEntries(previous Record, envSet map[string]string, envAddedPaths []string) (map[string]string, []string) {
+	if previous.Name == "" {
+		return nil, nil
+	}
+	keep := make(map[string]bool, len(envAddedPaths))
+	for _, p := range envAddedPaths {
+		keep[strings.ToLower(filepath.Clean(p))] = true
+	}
+	var stalePaths []string
+	for _, p := range previous.EnvAddedPaths {
+		if !keep[strings.ToLower(filepath.Clean(p))] {
+			stalePaths = append(stalePaths, p)
+		}
+	}
+
+	staleSet := map[string]string{}
+	for name, val := range previous.EnvSet {
+		if _, still := envSet[name]; !still {
+			staleSet[name] = val
+		}
+	}
+	if len(staleSet) == 0 {
+		staleSet = nil
+	}
+	return staleSet, stalePaths
 }
 
 // revertEnv unsets/removes exactly what applyEnv recorded having set, so
