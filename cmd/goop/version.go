@@ -27,6 +27,40 @@ var version = "dev"
 // all. A plain `go build` from a working tree fills them in too; only
 // builds from an unpacked source archive leave them empty, which is why
 // each line is emitted only when it has a value.
+// buildCommit is the revision this binary was built from, short, with a
+// "(modified)" marker when the tree was dirty -- a commit id alone is
+// misleading if it had uncommitted changes.
+//
+// Empty when the build carries no VCS stamp, which an unpacked source
+// archive does not. A conformance record says so rather than inventing
+// one.
+func buildCommit() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	var revision string
+	dirty := false
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			revision = s.Value
+		case "vcs.modified":
+			dirty = s.Value == "true"
+		}
+	}
+	if revision == "" {
+		return ""
+	}
+	if len(revision) > 12 {
+		revision = revision[:12]
+	}
+	if dirty {
+		revision += " (modified)"
+	}
+	return revision
+}
+
 func versionInfo() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "goop %s\n", version)

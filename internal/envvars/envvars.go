@@ -83,6 +83,24 @@ func currentPath(k registry.Key) ([]string, error) {
 	return currentListVar(k, "Path")
 }
 
+// PathEntries reads the persisted per-user PATH, split into entries.
+//
+// The persisted one, not the running process's: a shell inherited its
+// copy when it started and may be hours out of date, which is exactly
+// the confusion this package's doc comment describes. Anything reasoning
+// about what goop has written has to look at the registry.
+func PathEntries() ([]string, error) {
+	k, err := registry.OpenKey(registry.CURRENT_USER, `Environment`, registry.QUERY_VALUE)
+	if err != nil {
+		if err == registry.ErrNotExist {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("open HKCU\\Environment: %w", err)
+	}
+	defer k.Close()
+	return currentPath(k)
+}
+
 // currentListVar reads a semicolon-separated HKCU\Environment value
 // (Path, PSModulePath, ...), split into its entries.
 func currentListVar(k registry.Key, name string) ([]string, error) {

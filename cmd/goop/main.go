@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -243,7 +244,8 @@ func printUsage() {
 	cmd("goop cache rm [pattern...]", "delete cached files matching any pattern; no pattern empties the cache")
 	cmd("", "patterns match anywhere in the filename, so `goop cache rm firefox` works")
 	cmd("goop reset <name>... | --all", "rebuild shims/shortcuts/env from the install record; files untouched")
-	cmd("goop cleanup [name] [--dry-run]", "remove versions an update superseded; `current` is never touched")
+	cmd("goop cleanup [name] [--dry-run] [-y]", "remove versions an update superseded; `current` is never touched")
+	cmd("", "with no name, also prunes PATH entries left by superseded versions (under <root>\\apps only)")
 	cmd("goop search <query> [--bin]", "query is a case-insensitive regex matched against manifest names")
 	cmd("", "--bin also matches each manifest's `bin` field (e.g. `rg` -> ripgrep), decoding every manifest so slower")
 	fmt.Fprintln(os.Stderr)
@@ -280,7 +282,9 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr)
 
 	section("profiles -- what a repository needs")
-	cmd("goop profile check <file> [profile...]", "compare this machine to the profiles a file declares; exit 3 on deviation")
+	cmd("goop profile check <file> [profile...] [--json]", "compare this machine to the profiles a file declares; exit 3 on deviation")
+	cmd("", "reports every package examined, not only the failures, with what was required and what was found")
+	cmd("", "--json writes the same findings as an archivable record: file hash, machine, time, goop build")
 	cmd("", "reads receipts only -- no bucket, no network. A package outside the profile is never a deviation")
 	cmd("", "membership counts: a package filed under another profile does not match the file")
 	cmd("goop profile sync <file> [profile...] [-y]", "install what the file requires and is missing; idempotent, no prior state needed")
@@ -1246,25 +1250,40 @@ func cmdDownload(names []string) int {
 // cmdCleanup removes versions superseded by an update. --dry-run is
 // the default-safe way to look first, since the removal is permanent.
 func cmdCleanup(args []string) int {
-	dry := false
+	dry, assumeYes := false, false
 	only := ""
 	for _, a := range args {
-		if a == "--dry-run" {
+		switch a {
+		case "--dry-run":
 			dry = true
-			continue
+		case "-y", "--yes":
+			assumeYes = true
+		default:
+			only = a
 		}
-		only = a
 	}
 	stale, err := installer.StaleVersions(only)
 	if err != nil {
 		ui.Fail("cleanup: %v", err)
 		return 1
 	}
-	if len(stale) == 0 {
+	// PATH entries left by superseded versions belong to the same job:
+	// removing a version directory and leaving the entry that names it is
+	// the inconsistency, not two separate ones. Only when cleaning
+	// everything -- pruning PATH while cleaning one app would touch
+	// entries the caller did not ask about.
+	var stalePaths []installer.StalePathEntry
+	if only == "" {
+		if stalePaths, err = installer.StalePathEntries(); err != nil {
+			ui.Warn("cleanup: could not read your PATH: %v", err)
+		}
+	}
+
+	if len(stale) == 0 && len(stalePaths) == 0 {
 		fmt.Println(ui.Dim("nothing to clean up"))
 		return 0
 	}
-	if dry {
+	if len(stale) > 0 {
 		var total int64
 		rows := make([][]string, len(stale))
 		for i, s := range stale {
@@ -1272,7 +1291,37 @@ func cmdCleanup(args []string) int {
 			total += s.Size
 		}
 		fmt.Print(ui.Table([]string{"APP", "OLD VERSION", "SIZE"}, rows))
-		fmt.Printf("%s %s in %d version(s) would be freed\n", ui.Bold("total:"), formatSize(total), len(stale))
+		fmt.Printf("%s %s in %d version(s)\n", ui.Bold("total:"), formatSize(total), len(stale))
+	}
+	if len(stalePaths) > 0 {
+		fmt.Printf("\n%s\n", ui.Bold(fmt.Sprintf("%d stale PATH entr(y/ies)", len(stalePaths))))
+		rows := make([][]string, len(stalePaths))
+		for i, p := range stalePaths {
+			rows[i] = []string{p.App, p.Path, ui.Yellow(p.Reason)}
+		}
+		fmt.Print(ui.Table([]string{"APP", "ENTRY", "WHY"}, rows))
+		fmt.Println(ui.Dim("  all under " + installer.AppsDir() + ", which only goop writes to"))
+	}
+	if dry {
+		fmt.Println()
+		fmt.Println(ui.Dim("--dry-run: nothing was changed"))
+		return 0
+	}
+	if !assumeYes && !confirmDestructive("Remove them?") {
+		return cancelled()
+	}
+	fmt.Println()
+
+	if len(stalePaths) > 0 {
+		n, err := installer.PrunePathEntries(stalePaths)
+		if err != nil {
+			ui.Fail("cleanup: %v", err)
+		}
+		if n > 0 {
+			ui.Ok("removed %d PATH entr(y/ies) (already-open shells keep the old value)", n)
+		}
+	}
+	if len(stale) == 0 {
 		return 0
 	}
 	freed, removed, err := installer.Cleanup(only)
@@ -2115,8 +2164,19 @@ func cmdConfig(args []string) int {
 // Reads receipts only -- no bucket, no network -- so it is instant and
 // answers the same on a disconnected machine.
 func cmdCheck(args []string) int {
+	var rest []string
+	asJSON := false
+	for _, a := range args {
+		switch a {
+		case "--json":
+			asJSON = true
+		default:
+			rest = append(rest, a)
+		}
+	}
+	args = rest
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: goop profile check <file> [profile...]")
+		fmt.Fprintln(os.Stderr, "usage: goop profile check <file> [profile...] [--json]")
 		return 2
 	}
 	f, err := profileset.Load(args[0])
@@ -2124,29 +2184,97 @@ func cmdCheck(args []string) int {
 		ui.Fail("profile check: %v", err)
 		return 1
 	}
-	deviations, err := installer.Check(f, args[1:])
+	// Every package examined, not only the ones that failed. "conformant"
+	// on its own does not say which file was read, on what machine, when,
+	// or whether a given package was even looked at -- which is the
+	// question an audit exists to close.
+	ev, err := installer.CheckEvidence(f, args[1:], args[0], version, buildCommit())
 	if err != nil {
 		ui.Fail("profile check: %v", err)
 		return 1
 	}
-	if len(deviations) == 0 {
-		names := args[1:]
-		if len(names) == 0 {
-			names = f.Names()
+
+	if asJSON {
+		out, err := json.MarshalIndent(ev, "", "  ")
+		if err != nil {
+			ui.Fail("profile check: %v", err)
+			return 1
 		}
-		ui.Ok("conformant: %s", strings.Join(names, ", "))
+		fmt.Println(string(out))
+		if !ev.Conformant {
+			return 3
+		}
 		return 0
 	}
-	rows := make([][]string, len(deviations))
-	for i, d := range deviations {
-		got := ui.Yellow(d.Got)
-		if d.Got == "" {
-			got = ui.Red("-")
+
+	printEvidenceHeader(ev)
+	rows := make([][]string, len(ev.Packages))
+	for i, p := range ev.Packages {
+		required := p.Required
+		if required == "" {
+			required = ui.Dim("any")
 		}
-		rows[i] = []string{d.Profile, d.Package, d.Want, got, ui.Red(d.Reason)}
+		installed := p.Installed
+		switch {
+		case installed == "":
+			installed = ui.Red("-")
+		case !p.Conformant:
+			installed = ui.Yellow(installed)
+		}
+		verdict := ui.Green(p.Verdict)
+		if !p.Conformant {
+			verdict = ui.Red(p.Verdict)
+		}
+		rows[i] = []string{p.Profile, p.Package, required, installed, shortDigest(p.InstalledDigest), verdict}
 	}
-	fmt.Print(ui.Table([]string{"PROFILE", "PACKAGE", "REQUIRED", "INSTALLED", "WHY"}, rows))
+	fmt.Print(ui.Table([]string{"PROFILE", "PACKAGE", "REQUIRED", "INSTALLED", "MANIFEST", "VERDICT"}, rows))
+
+	fmt.Println()
+	if ev.Conformant {
+		ui.Ok("conformant: %d package(s) across %s", len(ev.Packages), strings.Join(ev.Profiles, ", "))
+		fmt.Println(ui.Dim("  --json writes the same findings as a file you can keep"))
+		return 0
+	}
+	ui.Fail("%d of %d package(s) do not match", ev.Deviations, len(ev.Packages))
 	return 3
+}
+
+// printEvidenceHeader names what was checked, where, when and by which
+// build -- the part that makes the table below it mean something to
+// somebody who was not present when it ran.
+func printEvidenceHeader(ev installer.Evidence) {
+	fmt.Printf("\n%s\n", ui.Bold("conformance check"))
+	rows := [][]string{
+		{"file", ev.File},
+		{"file sha256", ev.FileSHA256},
+		{"profiles", strings.Join(ev.Profiles, ", ")},
+		{"machine", ev.Host + " (" + ev.User + ")"},
+		{"goop root", ev.Root},
+		{"checked at", ev.CheckedAt.Format(time.RFC3339)},
+		{"goop", strings.TrimSpace(ev.Version + " " + ev.Commit)},
+	}
+	for _, r := range rows {
+		if r[1] == "" {
+			continue
+		}
+		fmt.Printf("  %-12s %s\n", ui.Dim(r[0]), r[1])
+	}
+	fmt.Println()
+}
+
+// shortDigest keeps a digest recognisable without letting it push every
+// other column off the terminal. The full value is in --json.
+func shortDigest(d string) string {
+	if d == "" {
+		return ui.Dim("-")
+	}
+	// ASCII on purpose: this lands in logs, CI output and pasted
+	// terminals, where a multi-byte ellipsis is one more thing that can
+	// arrive mangled.
+	if len(d) > 19 {
+		return ui.Dim(d[:19] + "...")
+	}
+	return ui.Dim(d)
 }
 
 // cmdSyncProfiles applies a profile file: install what is required and
