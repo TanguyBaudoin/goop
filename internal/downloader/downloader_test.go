@@ -135,23 +135,60 @@ func TestGet_HashMismatchIsRejected(t *testing.T) {
 	}
 }
 
-// TestGet_ConcurrentDifferentPackagesRunInParallel is the actual A1
-// proof: N distinct downloads issued concurrently must all complete
-// correctly, and do so faster than N times a single download's latency.
+// TestGet_ConcurrentDifferentPackagesRunInParallel is the A1 proof: N
+// distinct downloads issued concurrently must all complete correctly,
+// and must actually overlap.
+//
+// The overlap is proved structurally rather than timed. The handler
+// blocks every request until n of them are in flight at once, then
+// releases them all: downloads that ran one at a time can never reach n,
+// so the first one waits out the deadline and the test fails with that
+// said plainly. Nothing depends on how fast the machine is.
+//
+// It used to measure wall-clock time against a fraction of what
+// sequential would cost, and failed twice on a shared CI runner -- 548ms
+// against a 450ms bar, then 617ms against 600ms -- on runs that had in
+// fact overlapped six 150ms downloads. Both were correct results called
+// failures, and the second one only happened because the first "fix" was
+// to move the number. A threshold tuned against somebody else's hardware
+// is not a test.
 func TestGet_ConcurrentDifferentPackagesRunInParallel(t *testing.T) {
 	const n = 6
-	const perRequestDelay = 150 * time.Millisecond
+	// Not a latency budget: every request is released the instant the
+	// nth arrives, so a healthy run never waits at all and machine speed
+	// does not matter. It only bounds the failing case -- serialized
+	// downloads wait it out once each, so n*gateDeadline is how long a
+	// real failure takes to report itself. Kept short enough that it
+	// arrives as this test's own message rather than as a suite timeout,
+	// which would say nothing about what went wrong.
+	const gateDeadline = 5 * time.Second
+
+	var (
+		mu       sync.Mutex
+		inFlight int
+	)
+	allArrived := make(chan struct{})
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(perRequestDelay)
+		mu.Lock()
+		inFlight++
+		if inFlight == n {
+			close(allArrived) // the nth request unblocks every one of them
+		}
+		mu.Unlock()
+
+		select {
+		case <-allArrived:
+		case <-time.After(gateDeadline):
+			http.Error(w, "requests did not overlap", http.StatusInternalServerError)
+			return
+		}
 		content := []byte("payload-" + r.URL.Query().Get("id"))
 		http.ServeContent(w, r, "f.bin", time.Time{}, bytes.NewReader(content))
 	}))
 	defer srv.Close()
 
 	cacheDir := t.TempDir()
-	start := time.Now()
-
 	var wg sync.WaitGroup
 	errs := make([]error, n)
 	for i := 0; i < n; i++ {
@@ -165,33 +202,22 @@ func TestGet_ConcurrentDifferentPackagesRunInParallel(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	elapsed := time.Since(start)
 
 	for i, err := range errs {
 		if err != nil {
-			t.Fatalf("download %d: %v", i, err)
+			// The handler answers 500 when it waited out gateDeadline
+			// without seeing n requests at once, which is the only way a
+			// download fails here -- the payloads and hashes are fixed.
+			t.Fatalf("download %d: %v\n"+
+				"  a 500 here is the test server reporting that it never saw %d requests at once:\n"+
+				"  the downloads ran one at a time", i, err, n)
 		}
 	}
-	// What this proves is "concurrent, not sequential". Sequential cannot
-	// finish in less than n*perRequestDelay, so any bar below that is
-	// evidence of overlap; the margin only decides how much CPU
-	// contention the test tolerates before calling a real result a
-	// failure.
-	//
-	// It used to demand half of sequential, which a shared CI runner
-	// missed at 548ms against a 450ms bar -- a run that had in fact
-	// overlapped six 150ms downloads into well under the 900ms they would
-	// have taken one at a time. Two thirds keeps the claim (still
-	// unreachable sequentially, still 4x the ideal 150ms) without failing
-	// on a busy machine.
-	//
-	// The message quoted n*perRequestDelay while the check used half of
-	// it, so the failure read as self-contradictory -- "took 548ms,
-	// expected well under 900ms" -- and sent the next reader looking for
-	// an inverted comparison. It reports the bar it actually applies now.
-	limit := n * perRequestDelay * 2 / 3
-	if elapsed > limit {
-		t.Fatalf("took %v, want under %v -- sequential would need %v, so this did not overlap",
-			elapsed, limit, n*perRequestDelay)
+	// Reaching here means the server saw all n at once and every payload
+	// still verified against its own hash.
+	mu.Lock()
+	defer mu.Unlock()
+	if inFlight != n {
+		t.Errorf("server saw %d concurrent requests, want %d", inFlight, n)
 	}
 }
