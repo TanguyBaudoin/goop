@@ -11,7 +11,30 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
-## [Unreleased]
+## [0.7.0] — 2026-09-01
+
+### Fixed
+
+- **`goop uninstall` told you it was deleting your persisted data. It
+  never was.** The confirmation added in 0.6.0 said "data persisted by
+  these packages goes with them", and `uninstall --all` had said the same
+  since 0.1.0. goop keeps that data — an app's settings survive an
+  uninstall, matching Scoop.
+
+  Confirmed on a real machine after removing VLC: `apps/vlc` gone,
+  `persist/vlc` still there with 6.9 MB in it, alongside four other
+  persist directories for apps uninstalled months earlier.
+
+  A confirmation that misdescribes the consequence is worse than none:
+  it makes people cancel removals they wanted, or assume data is gone and
+  never look for it. Both messages now say what actually happens, and the
+  uninstall prompt names the packages whose data is kept and how much of
+  it there is.
+
+- **`goop uninstall --purge`** deletes the persisted data too, for the
+  packages being removed — including ones pulled in by the cascade, whose
+  data is as persisted as the one you named. It is opt-in because it
+  destroys what an uninstall deliberately preserves.
 
 ### Changed
 
@@ -715,7 +738,8 @@ status. The largest: installation is verified by hand rather than by an
 automated harness, the released binary is not Authenticode-signed so
 SmartScreen may warn on first run, and goop has a single maintainer.
 
-[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.7.0
 [0.6.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.6.0
 [0.5.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.5.0
 [0.4.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.4.0

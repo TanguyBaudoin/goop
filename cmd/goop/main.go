@@ -223,7 +223,8 @@ func printUsage() {
 	cmd("", "refreshes buckets first if older than 3h (--no-update skips), same as Scoop")
 	cmd("", "depends resolve recursively, with cycle + conflict detection (A4)")
 	cmd("", "or maven:[reponame/]groupId:artifactId:version:classifier:packaging -- needs `goop maven-repo add` first")
-	cmd("goop uninstall <name>... [--force] [-y]", "shows what goes, cascade included, and asks; --force ignores the profile safety net")
+	cmd("goop uninstall <name>... [--force] [--purge] [-y]", "shows what goes, cascade included, and asks; --force ignores the profile safety net")
+	cmd("", "persisted data is kept (like Scoop); --purge deletes it too, for the packages being removed")
 	cmd("goop uninstall --all [--force]", "remove every installed app; asks you to type a word to confirm")
 	cmd("", "there is no unattended form: it refuses when stdin is not a terminal")
 	cmd("goop update [name]... [--dry-run] [-y] [-v]", "shows what would change and asks before doing it; all installed if none given (FR-05)")
@@ -987,7 +988,7 @@ func sortedKeys(m map[string]error) []string {
 
 func cmdUninstall(args []string) int {
 	var names []string
-	force, all, assumeYes := false, false, false
+	force, all, assumeYes, purge := false, false, false, false
 	for _, a := range args {
 		switch a {
 		case "--force":
@@ -996,6 +997,8 @@ func cmdUninstall(args []string) int {
 			all = true
 		case "-y", "--yes":
 			assumeYes = true
+		case "--purge":
+			purge = true
 		default:
 			names = append(names, a)
 		}
@@ -1059,7 +1062,30 @@ func cmdUninstall(args []string) int {
 		rows = append(rows, []string{n, ui.Yellow("depends on one of them"), claimedBy(n)})
 	}
 	fmt.Print(ui.Table([]string{"PACKAGE", "WHY", "LEAVES PROFILE"}, rows))
-	fmt.Println(ui.Dim("  data persisted by these packages goes with them; the download cache is kept"))
+
+	// What actually survives, named with its size. The line here used to
+	// say persisted data "goes with them", which is the opposite of what
+	// goop does -- an uninstall keeps it, matching Scoop. A confirmation
+	// that misdescribes the consequence is worse than no confirmation.
+	var kept []string
+	var keptBytes int64
+	for _, n := range append(append([]string{}, plan.Requested...), plan.Cascaded...) {
+		if size, ok := installer.PersistedSize(n); ok {
+			kept = append(kept, n)
+			keptBytes += size
+		}
+	}
+	if len(kept) > 0 && !purge {
+		fmt.Printf("  %s\n", ui.Dim(fmt.Sprintf(
+			"persisted data is kept for %s (%s) -- pass --purge to delete it too",
+			strings.Join(kept, ", "), formatSize(keptBytes))))
+	}
+	if len(kept) > 0 && purge {
+		fmt.Printf("  %s\n", ui.Yellow(fmt.Sprintf(
+			"--purge: %s of persisted data for %s will be DELETED",
+			formatSize(keptBytes), strings.Join(kept, ", "))))
+	}
+	fmt.Println(ui.Dim("  the download cache is kept"))
 
 	if !assumeYes && !confirmDestructive("Remove them?") {
 		return cancelled()
@@ -1071,6 +1097,16 @@ func cmdUninstall(args []string) int {
 		if err := installer.Uninstall(name, force); err != nil {
 			ui.Fail("uninstall %s: %v", name, err)
 			exit = 1
+		}
+	}
+	if purge {
+		// After the uninstalls, and over the whole plan: a cascaded
+		// package's data is as persisted as the one that was named.
+		for _, n := range append(append([]string{}, plan.Requested...), plan.Cascaded...) {
+			if err := installer.PurgePersisted(n); err != nil {
+				ui.Fail("purge %s: %v", n, err)
+				exit = 1
+			}
 		}
 	}
 	return exit
@@ -1118,7 +1154,7 @@ func confirmUninstallAll() bool {
 	fmt.Fprintf(os.Stderr, "%s %s\n", ui.Yellow(ui.Bang),
 		ui.Bold(fmt.Sprintf("This removes all %d installed package(s) from %s:", len(names), paths.Root())))
 	fmt.Fprintf(os.Stderr, "  %s\n", strings.Join(names, ", "))
-	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Data persisted by those packages goes with them. The download cache is kept."))
+	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Persisted data and the download cache are kept."))
 	fmt.Fprintf(os.Stderr, "Type %s to confirm: ", ui.Bold(uninstallAllToken))
 
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')

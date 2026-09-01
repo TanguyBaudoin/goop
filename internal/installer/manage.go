@@ -3,6 +3,7 @@ package installer
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -441,6 +442,47 @@ func (p UninstallPlan) Total() int { return len(p.Requested) + len(p.Cascaded) }
 
 // PlanUninstall works out what removing names would take with it,
 // touching nothing.
+// PersistedSize reports how much data appName has in the persist store,
+// and whether it has any at all.
+//
+// An uninstall keeps that data (NR-04, matching Scoop), so a caller
+// asking someone to confirm a removal can say what is being kept and how
+// much of it -- 3.8 GB sitting under persist for an app removed months
+// ago is worth knowing about.
+func PersistedSize(appName string) (int64, bool) {
+	dir := paths.Persist(appName)
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return 0, false
+	}
+	var total int64
+	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if fi, err := d.Info(); err == nil {
+			total += fi.Size()
+		}
+		return nil
+	})
+	return total, true
+}
+
+// PurgePersisted deletes an app's persist store. Separate from Uninstall
+// because it destroys data an uninstall deliberately preserves, and that
+// has to be asked for by name.
+func PurgePersisted(appName string) error {
+	dir := paths.Persist(appName)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("remove %s: %w", dir, err)
+	}
+	Logf("%s: removing persisted data", appName)
+	return nil
+}
+
 func PlanUninstall(names []string) (UninstallPlan, error) {
 	var p UninstallPlan
 
