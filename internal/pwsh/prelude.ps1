@@ -719,3 +719,47 @@ function startmenu_shortcut($targetPath, $shortcutName, $shortcutArguments, $ico
             (New-Object System.Text.UTF8Encoding $false))
     }
 }
+
+# ---------------------------------------------------------------------
+# Helper names Scoop has removed.
+#
+# Scoop dropped extract_7zip, extract_msi and unpack_inno in #4638 and
+# no longer defines them anywhere: a manifest still calling one fails on
+# current Scoop too. goop keeps them working anyway, because goop
+# consumes buckets it does not control and cannot fix. Measured across
+# ScoopMaster's 23,088 manifests: 1,332 call a current Expand-* helper,
+# 16 still call extract_7zip -- those 16 are installable here and not on
+# Scoop.
+#
+# Signatures are the ones Scoop had at removal (positional $path, $to,
+# $removal), recovered from its history rather than guessed, so the
+# existing call sites keep working unchanged.
+#
+# Expand-ZstdArchive is the opposite case: current Scoop still has it,
+# itself deprecated and forwarding to Expand-7zipArchive. Same forward
+# here, so a manifest written against it behaves identically.
+# ---------------------------------------------------------------------
+
+function extract_7zip($path, $to, $removal) {
+    Expand-7zipArchive -Path $path -DestinationPath $to -Removal:$removal @args
+}
+
+function extract_msi($path, $to, $removal) {
+    Expand-MsiArchive -Path $path -DestinationPath $to -Removal:$removal
+}
+
+function unpack_inno($path, $to, $removal) {
+    Expand-InnoArchive -Path $path -DestinationPath $to -Removal:$removal @args
+}
+
+function Expand-ZstdArchive {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true, Position = 0)] [string]$Path,
+        [Parameter(Position = 1)] [string]$DestinationPath = (Split-Path $Path),
+        [string]$ExtractDir,
+        [Parameter(ValueFromRemainingArguments = $true)] [string[]]$Switches,
+        [switch]$Removal
+    )
+    Expand-7zipArchive -Path $Path -DestinationPath $DestinationPath -ExtractDir $ExtractDir -Switches $Switches -Removal:$Removal
+}

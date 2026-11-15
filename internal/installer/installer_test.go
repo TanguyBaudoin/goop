@@ -177,6 +177,28 @@ func TestImplicitHelpers(t *testing.T) {
 			manifest.Resolved{URLs: []string{"https://h/download#/dl.7z"}},
 			[]string{"7zip"},
 		},
+		// The helper names Scoop removed. The prelude keeps them working,
+		// so detection has to match or the alias would be defined and
+		// then fail for want of the tool it forwards to -- half-support
+		// that is worse than none. 16 of ScoopMaster's manifests still
+		// call extract_7zip.
+		{
+			"legacy extract_7zip needs 7zip",
+			manifest.Resolved{URLs: []string{"https://h/a.exe"}, PostInstall: `extract_7zip "$dir\x.tar.xz" "$dir"`},
+			[]string{"7zip"},
+		},
+		{
+			"legacy unpack_inno needs innounp",
+			manifest.Resolved{URLs: []string{"https://h/a.exe"}, Installer: manifest.InstallHook{Script: `unpack_inno "$dir\s.exe" "$dir"`}},
+			[]string{"innounp"},
+		},
+		{
+			// Deprecated in current Scoop, where it forwards to
+			// Expand-7zipArchive -- so it needs the same tool.
+			"Expand-ZstdArchive needs 7zip",
+			manifest.Resolved{URLs: []string{"https://h/a.zip"}, PreInstall: "Expand-ZstdArchive x"},
+			[]string{"7zip"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

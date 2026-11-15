@@ -29,17 +29,31 @@ import (
 func implicitHelpers(r manifest.Resolved) []string {
 	script := r.PreInstall + r.Installer.Script + r.PostInstall
 
+	// Both the current helper names and the ones Scoop removed. The
+	// prelude keeps the old names working (see its deprecated-aliases
+	// section), and detection has to match or the alias would be defined
+	// and then fail for want of the tool it forwards to -- the kind of
+	// half-support that is worse than none.
 	var out []string
-	if needsSevenZip(r) || strings.Contains(script, "Expand-7zipArchive") {
+	if needsSevenZip(r) || containsAny(script, "Expand-7zipArchive", "Expand-ZstdArchive", "extract_7zip") {
 		out = append(out, "7zip")
 	}
-	if r.InnoSetup || strings.Contains(script, "Expand-InnoArchive") {
+	if r.InnoSetup || containsAny(script, "Expand-InnoArchive", "unpack_inno") {
 		out = append(out, "innounp")
 	}
-	if strings.Contains(script, "Expand-DarkArchive") {
+	if containsAny(script, "Expand-DarkArchive") {
 		out = append(out, "dark")
 	}
 	return out
+}
+
+func containsAny(haystack string, needles ...string) bool {
+	for _, n := range needles {
+		if strings.Contains(haystack, n) {
+			return true
+		}
+	}
+	return false
 }
 
 // needsSevenZip reports whether any of r's URLs lands on a format

@@ -15,6 +15,28 @@ built from — quote it in bug reports.
 
 ### Added
 
+- **The Scoop helper names Scoop itself removed now work.** A manifest
+  calling `extract_7zip`, `extract_msi` or `unpack_inno` failed on goop —
+  and fails on current Scoop too: those were dropped in Scoop #4638 and
+  are not defined anywhere in v0.5.3. goop keeps them working anyway,
+  because goop consumes buckets it does not control and cannot fix.
+
+  Measured across ScoopMaster's 23,088 manifests: 1,332 call a current
+  `Expand-*` helper (all already supported), and 16 still call
+  `extract_7zip`. Those 16 install on goop and not on Scoop.
+
+  Signatures are the ones Scoop had at removal — positional
+  `$path, $to, $removal`, recovered from its git history rather than
+  guessed — so existing call sites work unchanged. `Expand-ZstdArchive`
+  is added too: current Scoop still has it, itself deprecated and
+  forwarding to `Expand-7zipArchive`, and goop now forwards identically.
+
+  The half that is easy to miss: `implicitHelpers` detects the old names
+  as well, so 7zip and innounp are actually installed. Defining an alias
+  that then fails for want of the tool it forwards to is worse than not
+  defining it. Verified end to end — a manifest calling `extract_7zip`
+  pulls in 7zip, extracts, and installs.
+
 - **`goop bucket apps [name]`** lists every package a bucket offers.
   `goop search .` could already approximate it and did it badly: a regex
   across every bucket at once with no way to scope to one, decoding every
