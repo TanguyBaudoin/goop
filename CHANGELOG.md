@@ -11,6 +11,33 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
+## [Unreleased]
+
+### Added
+
+- **`goop bucket apps [name]`** lists every package a bucket offers.
+  `goop search .` could already approximate it and did it badly: a regex
+  across every bucket at once with no way to scope to one, decoding every
+  manifest whether or not you wanted versions — 7.4s and 5088 lines when
+  the question was "what is in `main`".
+
+  Names only by default, one per line, which is both what pipes into
+  `grep` and the only form that stays usable at this size. It reads
+  directory entries and nothing else, because a manifest's filename *is*
+  the package name: **1642 packages in 0.03s**, and it stays instant
+  whatever the bucket's size.
+
+  `--versions` decodes every manifest, concurrently, to add versions and
+  the commands each package puts on PATH. A manifest that will not decode
+  is reported against its own package rather than failing the listing or
+  being passed off as healthy — a package you cannot install is better
+  known now than at install time. `--json` for the full data, including
+  the complete command list (the table caps it: `unxutils` declares 124
+  binaries, 818 characters, which padded that column for all 1642 rows).
+
+  With no name, every configured bucket in priority order — the order
+  that decides which one wins a name collision.
+
 ## [0.7.0] — 2026-09-01
 
 ### Fixed

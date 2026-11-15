@@ -256,6 +256,9 @@ func printUsage() {
 	cmd("goop bucket remove <name>", "drops the config entry and deletes the local clone; already-installed apps are unaffected")
 	cmd("goop bucket priority <name> <n>", "n=1 is searched first, so it wins when several buckets carry the same app")
 	cmd("goop bucket list", "")
+	cmd("goop bucket apps [name] [--versions]", "every package a bucket offers, one per line; no name lists them all, prefixed by bucket")
+	cmd("", "names only by default and instant at any size -- a manifest's filename is the package name")
+	cmd("", "--versions decodes every manifest to add versions and commands; --json for the full data")
 	cmd("goop bucket update [name]", "")
 	cmd("goop migrate [--dry-run]", "copy every Scoop bucket + app into goop, independent of Scoop (safe to uninstall it after)")
 	fmt.Fprintln(os.Stderr)
@@ -1796,7 +1799,7 @@ func cmdAuthAdd(args []string) int {
 
 func cmdBucket(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: goop bucket <add|list|remove|priority|update> ...")
+		fmt.Fprintln(os.Stderr, "usage: goop bucket <add|apps|list|remove|priority|update> ...")
 		return 2
 	}
 	switch args[0] {
@@ -1883,10 +1886,117 @@ func cmdBucket(args []string) int {
 		}
 		ui.Ok("updated all buckets")
 		return 0
+	case "apps":
+		return cmdBucketApps(args[1:])
 	default:
-		fmt.Fprintln(os.Stderr, "usage: goop bucket <add|list|update> ...")
+		fmt.Fprintln(os.Stderr, "usage: goop bucket <add|apps|list|remove|priority|update> ...")
 		return 2
 	}
+}
+
+// summarizeCommands keeps the commands column readable.
+//
+// The table pads every column to its widest value, and `unxutils`
+// declares 124 binaries -- 818 characters, which padded the column to
+// that width for all 1642 rows and pushed everything else off the
+// screen. The full list is in --json, which is the right place for it.
+func summarizeCommands(bins []string) string {
+	const maxWidth = 40
+	var out []string
+	width := 0
+	for i, b := range bins {
+		if width+len(b)+2 > maxWidth {
+			return fmt.Sprintf("%s +%d more", strings.Join(out, ", "), len(bins)-i)
+		}
+		out = append(out, b)
+		width += len(b) + 2
+	}
+	return strings.Join(out, ", ")
+}
+
+// cmdBucketApps lists what a bucket offers.
+//
+// `goop search .` could already approximate this and did it badly: a
+// regex across every bucket at once, no way to scope to one, and it
+// decodes every manifest whether or not you asked for versions -- 7.4s
+// and 5088 lines when the question was "what is in main".
+//
+// Names only by default, one per line, because that is what pipes into
+// grep and because a manifest's filename *is* the package name: no
+// decoding, so the answer is immediate whatever the bucket's size.
+func cmdBucketApps(args []string) int {
+	var name string
+	detail, asJSON := false, false
+	for _, a := range args {
+		switch a {
+		case "--versions", "-v":
+			detail = true
+		case "--json":
+			detail, asJSON = true, true
+		default:
+			if strings.HasPrefix(a, "-") {
+				fmt.Fprintln(os.Stderr, "usage: goop bucket apps [name] [--versions] [--json]")
+				return 2
+			}
+			name = a
+		}
+	}
+
+	var apps []bucket.App
+	var err error
+	if name == "" {
+		apps, err = bucket.AllApps(detail)
+	} else {
+		apps, err = bucket.Apps(name, detail)
+	}
+	if err != nil {
+		ui.Fail("bucket apps: %v", err)
+		return 1
+	}
+
+	if asJSON {
+		out, err := json.MarshalIndent(apps, "", "  ")
+		if err != nil {
+			ui.Fail("bucket apps: %v", err)
+			return 1
+		}
+		fmt.Println(string(out))
+		return 0
+	}
+
+	if !detail {
+		// Bare names, one per line: pipeable, and the only form that
+		// stays usable at sixteen hundred entries.
+		for _, a := range apps {
+			if name == "" {
+				fmt.Printf("%s/%s\n", a.Bucket, a.Name)
+				continue
+			}
+			fmt.Println(a.Name)
+		}
+		fmt.Fprintln(os.Stderr, ui.Dim(fmt.Sprintf("%d package(s) -- --versions adds versions and commands", len(apps))))
+		return 0
+	}
+
+	rows := make([][]string, len(apps))
+	broken := 0
+	for i, a := range apps {
+		version := a.Version
+		if a.Err != nil {
+			// Named, not swallowed: a manifest that will not decode is
+			// a package you cannot install, and finding that out at
+			// install time is worse.
+			version = ui.Red("unreadable")
+			broken++
+		}
+		rows[i] = []string{a.Bucket, a.Name, version, ui.Dim(summarizeCommands(a.Binaries))}
+	}
+	fmt.Print(ui.Table([]string{"BUCKET", "PACKAGE", "VERSION", "COMMANDS"}, rows))
+	fmt.Fprintln(os.Stderr, ui.Dim(fmt.Sprintf("%d package(s)", len(apps))))
+	if broken > 0 {
+		ui.Warn("%d manifest(s) could not be decoded", broken)
+	}
+	return 0
 }
 
 func cmdMavenRepo(args []string) int {
