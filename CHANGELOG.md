@@ -13,6 +13,35 @@ built from — quote it in bug reports.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Editing a credential's password in the Windows Credential Manager
+  made goop unable to read it.** Two separate faults, both reproduced
+  against the real credential store before fixing:
+
+  goop wrote the secret as **UTF-8** and read it back as UTF-8 — self
+  consistent, and wrong the moment anything else writes it. The
+  Credential Manager UI writes **UTF-16LE**, so after an edit goop read
+  every character followed by a NUL:
+
+  ```
+  secret = "c\x00h\x00a\x00n\x00g\x00e\x00d\x00-\x00p\x00a\x00s\x00s\x00..."
+  ```
+
+  And goop records whether a credential is `bearer` or `basic` in the
+  credential's **Comment** field, which the UI neither shows nor carries
+  across an edit. So the type came back empty — the "bug on the type".
+
+  Reading now accepts either encoding. The test is "is this already
+  valid UTF-8 text", not a guess at who wrote it: a secret goop stored
+  passes unchanged, while a UTF-16LE blob fails it either on the
+  interleaved NULs or, for a secret made entirely of characters above
+  U+00FF, because the byte pairs are not valid UTF-8 — a NUL-only check
+  would have missed that second case. And an empty type is inferred from
+  the username, which the UI does keep: goop only ever sets one for
+  `basic`. `goop auth list` applies the same inference, so an edited
+  credential no longer shows a blank type.
+
 ### Changed
 
 - **`goop update` now says which "update" it is.** `scoop update` with no

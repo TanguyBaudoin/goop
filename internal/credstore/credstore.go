@@ -6,10 +6,12 @@
 package credstore
 
 import (
+	"bytes"
 	"fmt"
 	"runtime"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 	"unsafe"
 )
 
@@ -143,9 +145,63 @@ func Get(host string) (authType, username, secret string, ok bool, err error) {
 	username = utf16PtrToString(pCred.UserName)
 	if pCred.CredentialBlobSize > 0 {
 		secretBytes := unsafe.Slice(pCred.CredentialBlob, pCred.CredentialBlobSize)
-		secret = string(secretBytes)
+		secret = decodeSecret(secretBytes)
+	}
+	if authType == "" {
+		authType = inferAuthType(username)
 	}
 	return authType, username, secret, true, nil
+}
+
+// decodeSecret reads a credential blob whoever wrote it.
+//
+// goop writes UTF-8. Windows' own Credential Manager writes UTF-16LE --
+// it hands CredWrite the wide string from its edit box -- so editing a
+// password by hand left goop reading every character followed by a NUL
+// and failing to authenticate with a secret that looked, in any error
+// message, almost right.
+//
+// The test is "is this already valid UTF-8 text", not a guess at the
+// writer: a secret goop stored is valid UTF-8 and contains no NUL, so it
+// takes the first branch unchanged. A UTF-16LE blob fails that test
+// either because of the interleaved NULs (anything with an ASCII
+// character in it) or because the byte pairs are not valid UTF-8 (a
+// secret made entirely of characters above U+00FF), so both reach the
+// second.
+func decodeSecret(b []byte) string {
+	if utf8.Valid(b) && !bytes.ContainsRune(b, 0) {
+		return string(b)
+	}
+	if len(b)%2 != 0 {
+		// Not UTF-16 either. Hand back what is there rather than
+		// inventing something: a caller reporting a failed login with
+		// the real bytes is more use than one reporting a guess.
+		return string(b)
+	}
+	b = bytes.TrimPrefix(b, []byte{0xFF, 0xFE}) // BOM, if the writer added one
+	units := make([]uint16, 0, len(b)/2)
+	for i := 0; i+1 < len(b); i += 2 {
+		units = append(units, uint16(b[i])|uint16(b[i+1])<<8)
+	}
+	return syscall.UTF16ToString(units)
+}
+
+// inferAuthType recovers the kind of credential when the Comment field
+// that recorded it is gone.
+//
+// goop stores "bearer" or "basic" in Comment. The Credential Manager UI
+// does not show that field for a generic credential and does not carry
+// it across an edit, so editing a password silently erased it -- and an
+// empty type made goop treat a perfectly good credential as unusable.
+//
+// A username is the distinguishing fact, and the UI does keep it: goop
+// only ever sets one for "basic" (Set ignores it for "bearer"), so its
+// presence is exactly the question being asked.
+func inferAuthType(username string) string {
+	if username != "" {
+		return "basic"
+	}
+	return "bearer"
 }
 
 // Delete removes the credential for host. Deleting one that doesn't
@@ -199,7 +255,14 @@ func List() ([]Entry, error) {
 	for _, p := range ptrs {
 		target := utf16PtrToString(p.TargetName)
 		host := strings.TrimPrefix(target, targetPrefix)
-		entries = append(entries, Entry{Host: host, Type: utf16PtrToString(p.Comment)})
+		// Same inference as Get: an entry whose Comment was erased by an
+		// external edit still has a type, and listing it as blank would
+		// make a working credential look broken.
+		authType := utf16PtrToString(p.Comment)
+		if authType == "" {
+			authType = inferAuthType(utf16PtrToString(p.UserName))
+		}
+		entries = append(entries, Entry{Host: host, Type: authType})
 	}
 	return entries, nil
 }
