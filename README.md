@@ -444,6 +444,34 @@ goop install maven:corp/com.example:my-tool:1.4.2::jar
 Useful when your team's tooling is already published to a Maven
 repository and you'd rather not write manifests for it.
 
+## `goop update` is not `scoop update`
+
+Worth knowing before you type it, because the two mean different things:
+
+| you want | Scoop | goop |
+|---|---|---|
+| update the tool itself | `scoop update` | `goop self-update` |
+| update one package | `scoop update jq` | `goop update jq` |
+| update every package | `scoop update *` | `goop update` |
+
+So `goop update` with no argument updates **every installed package**,
+where the same words in Scoop update Scoop. goop says so in the plan it
+shows you before asking, and nothing happens until you answer.
+
+`goop update` also knows nothing about your profile files. It moves
+packages to whatever the bucket currently offers, including ones a
+committed profile file pins — the two planes are deliberately separate,
+and `goop profile check` is what catches the drift:
+
+```powershell
+goop update                      # vscode 1.135.0 -> 1.136.0
+goop profile check .\ide.goop    # exit 3: vscode is pinned to 1.135.0
+goop profile sync  .\ide.goop    # put it back
+```
+
+If a version matters enough that an update must not move it,
+`goop hold <name>` pins it on this machine and `goop update` skips it.
+
 ## Keeping everything updated together
 
 goop plugs into [topgrade](https://github.com/topgrade-rs/topgrade) via

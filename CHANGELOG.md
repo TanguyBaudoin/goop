@@ -13,6 +13,37 @@ built from — quote it in bug reports.
 
 ## [Unreleased]
 
+### Changed
+
+- **`goop update` now says which "update" it is.** `scoop update` with no
+  argument updates *Scoop itself* — `scoop update *` updates the apps —
+  so someone arriving from Scoop types `goop update` meaning "update
+  goop" and is looking at a plan to move every package on the machine.
+
+  The behaviour is unchanged, because scripts rely on it. The sentence
+  that removes the ambiguity now appears at the only moment it matters,
+  immediately above the confirmation:
+
+  ```
+  41 package(s) to update  —  every installed package
+    (goop self-update updates goop itself)
+  ```
+
+  Only when no package was named: having named one, you know what you
+  asked for.
+
+- **`--no-update` is now `--no-bucket-refresh`.** On `goop update` the
+  old name read as "update without updating"; it means "skip refreshing
+  the buckets". The old spelling is still accepted, silently, because
+  scripts use it.
+
+- Documented that `goop update` knows nothing about profile files. It
+  moves packages to whatever the bucket offers, pinned ones included —
+  the two planes are separate by design, `goop profile check` catches the
+  drift, and `goop hold` is what pins a version on one machine. Stated in
+  the README rather than papered over with a warning that would need goop
+  to remember which profile files matter.
+
 ### Added
 
 - **The Scoop helper names Scoop itself removed now work.** A manifest

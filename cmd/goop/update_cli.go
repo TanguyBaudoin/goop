@@ -26,7 +26,10 @@ func cmdUpdate(args []string) int {
 	noUpdate, assumeYes, dryRun, verbose := false, false, false, false
 	for _, a := range args {
 		switch a {
-		case "--no-update":
+		// --no-update reads as "update without updating". It means "skip
+		// refreshing the buckets", so that is what it is called now; the
+		// old spelling keeps working because scripts use it.
+		case "--no-bucket-refresh", "--no-update":
 			noUpdate = true
 		case "-y", "--yes":
 			assumeYes = true
@@ -36,7 +39,7 @@ func cmdUpdate(args []string) int {
 			verbose = true
 		default:
 			if strings.HasPrefix(a, "-") {
-				fmt.Fprintln(os.Stderr, "usage: goop update [name]... [--no-update] [--dry-run] [-y] [-v]")
+				fmt.Fprintln(os.Stderr, "usage: goop update [name]... [--no-bucket-refresh] [--dry-run] [-y] [-v]")
 				return 2
 			}
 			names = append(names, a)
@@ -90,7 +93,20 @@ func cmdUpdate(args []string) int {
 		return 0
 	}
 
-	fmt.Printf("\n%s\n", ui.Bold(fmt.Sprintf("%d package(s) to update", len(changing))))
+	// Say which "update" this is. `scoop update` with no argument updates
+	// Scoop itself -- `scoop update *` updates the apps -- so someone
+	// arriving from Scoop types `goop update` meaning "update goop" and
+	// is looking at every package on the machine. The behaviour stays
+	// (scripts rely on it); the sentence that removes the ambiguity
+	// appears at the only moment it matters, just before the question.
+	header := fmt.Sprintf("%d package(s) to update", len(changing))
+	if len(names) == 0 {
+		header += "  —  every installed package"
+	}
+	fmt.Printf("\n%s\n", ui.Bold(header))
+	if len(names) == 0 {
+		fmt.Println(ui.Dim("  (goop self-update updates goop itself)"))
+	}
 	rows := make([][]string, len(changing))
 	for i, p := range changing {
 		rows[i] = []string{p.Name, ui.Dim(p.Have), ui.Green(p.Available), ui.Gray(p.Bucket)}
