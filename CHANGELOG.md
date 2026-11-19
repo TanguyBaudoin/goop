@@ -11,7 +11,11 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
-## [Unreleased]
+## [0.8.0] — 2026-11-19
+
+Six changes, every one from a day of real use: two new commands, two
+pieces of Scoop compatibility, one data-corruption bug, and an ambiguity
+that had been quietly waiting for someone to type the wrong thing.
 
 ### Changed
 
@@ -919,7 +923,8 @@ status. The largest: installation is verified by hand rather than by an
 automated harness, the released binary is not Authenticode-signed so
 SmartScreen may warn on first run, and goop has a single maintainer.
 
-[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.8.0
 [0.7.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.7.0
 [0.6.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.6.0
 [0.5.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.5.0
