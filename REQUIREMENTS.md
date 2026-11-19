@@ -545,7 +545,7 @@ means building from a clone.
 |---|---|---|---|
 | 1 | ≥ 95 % pass rate on a representative manifest set | **Met** | Decode 1635/1635 on every push; install harness 8/8 by shape, weekly (§3) |
 | 2 | `update` and `status` gain at least an order of magnitude over Scoop | **Met** | Measured head-to-head, ~60× |
-| 3 | A `sync` on two separate machines yields matching trees | **Unverified** | Single-machine only; never tested across two |
+| 3 | A `sync` on two separate machines yields matching trees | **Partial** | Two independent roots, one host: 135 files compared, 0 unexplained differences (§12.1). Two real hosts still untested |
 | 4 | No plaintext secret on disk, in a log, or in a URL | **Met** | FR-32/FR-35 |
 | 5 | No regression on NR-01 to NR-07, verified point by point | **Partial** | NR-07 partial, see §2.1 |
 | 6 | A full CMake/Ninja build shows no duration regression | **Unverified** | Never measured |
@@ -557,12 +557,49 @@ roughly **60×**, not the single order of magnitude specified. The
 difference comes from process startup — Scoop pays a PowerShell
 interpreter per invocation, goop pays a process exec.
 
-**Criteria 3 and 6 are unverified, not met.** Both were written as
-measurements and neither measurement was ever taken. Criterion 6 in
-particular was a founding justification for the project — the build times
-that motivated a native shim — and it has never been quantified against
-Scoop. Marking these "met" on the strength of the code looking right is
-exactly the error this column exists to prevent.
+**Criterion 6 is unverified, not met.** It was written as a measurement
+and the measurement was never taken. It was also a founding justification
+for the project — the build times that motivated a native shim — and it
+has never been quantified against Scoop. Marking it "met" on the strength
+of the code looking right is exactly the error this column exists to
+prevent.
+
+### 12.1 Criterion 3: what was measured, and what was not
+
+`TestCriterion3_SyncOnTwoRootsYieldsMatchingTrees`
+(`internal/installer/criterion3_test.go`, gated behind `GOOP_HARNESS=1`)
+installs into root A, exports a profile file from A's receipts, syncs a
+second root B from that file, and compares the two trees.
+
+Measured, on the `main` bucket with `jq`, `ripgrep` and `7zip` — chosen
+for shape, not popularity: a bare executable, a zip with `extract_dir`,
+and an MSI that runs `post_install` and persists directories:
+
+- **135 files compared: 129 byte-identical, 6 identical once the install
+  path is normalised, 0 unexplained.** The 6 are the five shim sidecars
+  and 7zip's `install-context.reg`, all of which name an absolute path
+  because they must.
+- **5 reparse points compared** — each app's `current` junction and
+  7zip's persist links — equal in both existence and target.
+- **Receipts compared field by field**, with only `installed_at` exempt.
+
+The roots are independent in every way one host allows: separate
+`GOOP_HOME`, `APPDATA` and `LOCALAPPDATA`, and a bucket cloned separately
+into each. Nothing is shared but the network and the profile file.
+
+**It found one real defect.** `profiles/<name>.json` was the single file
+that differed: root A held its members in install order, root B in the
+sync's. A profile file stores packages as a JSON object and so carries no
+order at all, which made the ordering unreproducible by construction;
+`profile.Save` now sorts. Nothing had ever read `Apps[0]`, so the
+"ranking" its comment claimed was never a behaviour.
+
+**Still not verified, and why this is Partial rather than Met:** the
+criterion says *machines*, and this is one host. A second Windows build, a
+different CPU architecture, a different system locale or code page, and
+any manifest whose script branches on one of those, remain untested. The
+test settles whether the same inputs produce the same tree twice; it is
+blind to inputs that differ because the host does.
 
 ## 13. Risks
 

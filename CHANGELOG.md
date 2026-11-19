@@ -11,6 +11,39 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
+## [Unreleased]
+
+### Fixed
+
+- **Two machines built from the same profile file now hold byte-identical
+  profile bookkeeping.** `profiles/<name>.json` recorded its members in
+  whatever order they happened to arrive: install order on the machine
+  where you ran `goop install`, the sync's order on a machine that ran
+  `goop profile sync`. The order was never reproducible — a profile file
+  stores its packages as a JSON object, which carries no order — and
+  nothing in goop ever read the first member as meaning anything, despite
+  a comment claiming it was the default of a ranked set. Membership is
+  now stored sorted. Visible effect: `goop profile show` lists members in
+  the same order everywhere, and an exported file no longer produces
+  spurious diffs between two machines.
+
+### Added
+
+- **Acceptance criterion 3 is now tested rather than assumed.** The
+  specification asks that a `sync` on two separate machines yield
+  matching trees; that had never been run. A new opt-in test installs
+  into one isolated root, exports a profile file from its receipts, syncs
+  a second independent root from that file, and compares the two trees
+  file by file — 135 files, every reparse point, and every receipt field
+  but `installed_at`. Differences are classified rather than merely
+  counted: 129 identical, 6 identical once the install path is
+  normalised (the shim sidecars and 7zip's `.reg`, which must name an
+  absolute path), 0 unexplained. It is what found the ordering bug above.
+  REQUIREMENTS §12.1 records what this measures and what it does not —
+  it is two roots on one host, so a second Windows build, architecture
+  or locale remains untested, and the criterion is marked Partial rather
+  than Met.
+
 ## [0.8.0] — 2026-11-19
 
 Six changes, every one from a day of real use: two new commands, two

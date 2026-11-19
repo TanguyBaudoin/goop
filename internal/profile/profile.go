@@ -116,10 +116,22 @@ func loadLegacyDefault() (Definition, error) {
 	return decodeDefinition(Default, data)
 }
 
-// Save writes a profile, deduplicated, in the order entries were added.
+// Save writes a profile, deduplicated and sorted.
 //
-// Not sorted: a profile of alternatives ranks its members, and the first
-// is the default. Insertion order is stable anyway, so diffs stay clean.
+// Sorted because membership is a set, and because the order could not be
+// honoured even if it meant something. This used to keep insertion order,
+// justified as "a profile of alternatives ranks its members, and the
+// first is the default" -- but nothing in goop has ever read Apps[0] as a
+// default, and profileset.Profile stores packages as a JSON object, so a
+// profile file carries no order at all. A machine that syncs from one
+// therefore invents its own ordering, which is exactly how this was
+// found: acceptance criterion 3 compares two independently built roots,
+// and this file was the single thing that differed between them (root A
+// had install order, root B had the sync's).
+//
+// So the choice was between an order that two machines cannot agree on
+// and a canonical one. Ranking, if it is ever wanted, needs its own field
+// rather than an array order the file format cannot express.
 func Save(d Definition) error {
 	if d.Name == "" {
 		d.Name = Default
@@ -132,6 +144,7 @@ func Save(d Definition) error {
 			apps = append(apps, a)
 		}
 	}
+	sort.Strings(apps)
 	d.Apps = apps
 
 	if err := os.MkdirAll(profilesDir(), 0o755); err != nil {

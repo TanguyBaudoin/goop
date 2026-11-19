@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/TanguyBaudoin/goop/internal/paths"
 	"testing"
@@ -32,6 +33,79 @@ func TestPath_DefaultIsAProfileFile(t *testing.T) {
 	}
 	if Path(Default) == filepath.Join(paths.Root(), "goop.lock.json") {
 		t.Error("the default profile must no longer alias the root lockfile")
+	}
+}
+
+// Membership is stored sorted so that two machines built from the same
+// profile file hold the same bytes.
+//
+// This is the defect acceptance criterion 3 turned up: a root where the
+// packages were installed one by one kept install order, a root synced
+// from the exported file used the sync's order, and profiles/<name>.json
+// was the only file in either tree that disagreed. Order cannot be
+// carried by a profile file -- its packages are a JSON object -- so the
+// stored set has to be canonical instead.
+func TestSave_SortsMembersSoTwoMachinesAgree(t *testing.T) {
+	withTempRoot(t)
+
+	// Two machines reach the same membership by different routes.
+	installOrder := Definition{Name: "crit3", Apps: []string{"jq", "ripgrep", "7zip"}}
+	syncOrder := Definition{Name: "crit3-b", Apps: []string{"7zip", "jq", "ripgrep"}}
+
+	for _, d := range []Definition{installOrder, syncOrder} {
+		if err := Save(d); err != nil {
+			t.Fatalf("Save(%s): %v", d.Name, err)
+		}
+	}
+	a, err := Load("crit3")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	b, err := Load("crit3-b")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !slices.Equal(a.Apps, b.Apps) {
+		t.Errorf("the same membership reached two ways must store identically:\n  A: %v\n  B: %v", a.Apps, b.Apps)
+	}
+	if want := []string{"7zip", "jq", "ripgrep"}; !slices.Equal(a.Apps, want) {
+		t.Errorf("members = %v, want them sorted as %v", a.Apps, want)
+	}
+
+	// And the bytes themselves must match, since that is what the
+	// two-root comparison actually checks.
+	rawA, err := os.ReadFile(Path("crit3"))
+	if err != nil {
+		t.Fatalf("reading crit3: %v", err)
+	}
+	rawB, err := os.ReadFile(Path("crit3-b"))
+	if err != nil {
+		t.Fatalf("reading crit3-b: %v", err)
+	}
+	// The name differs by construction; everything after it must not.
+	normA := strings.Replace(string(rawA), `"crit3"`, `"X"`, 1)
+	normB := strings.Replace(string(rawB), `"crit3-b"`, `"X"`, 1)
+	if normA != normB {
+		t.Errorf("profile files differ beyond their name:\n  A: %s\n  B: %s", normA, normB)
+	}
+}
+
+// Adding members one at a time must land in the same place as saving them
+// all at once -- Add goes through Save, so the invariant has to hold on
+// the incremental path too.
+func TestAdd_KeepsMembersSorted(t *testing.T) {
+	withTempRoot(t)
+	for _, app := range []string{"zoxide", "jq", "ripgrep", "7zip"} {
+		if err := Add("p", app); err != nil {
+			t.Fatalf("Add(%s): %v", app, err)
+		}
+	}
+	d, err := Load("p")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if want := []string{"7zip", "jq", "ripgrep", "zoxide"}; !slices.Equal(d.Apps, want) {
+		t.Errorf("members = %v, want %v", d.Apps, want)
 	}
 }
 
