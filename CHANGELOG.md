@@ -13,6 +13,42 @@ built from — quote it in bug reports.
 
 ## [Unreleased]
 
+### Changed
+
+- **`goop help` is one screen instead of four.** It was 137 lines
+  covering 65 commands, each with up to four lines of rationale
+  underneath. A terminal shows 30 to 50 lines, so opening it scrolled its
+  own beginning off the screen and left you reading the middle of a
+  reference manual — which is why people said they could not understand
+  it.
+
+  Same words, three views:
+
+  | | |
+  |---|---|
+  | `goop help` | **31 lines**: what to type, grouped, no rationale |
+  | `goop help <command>` | that command, with the detail that used to crowd the front page |
+  | `goop help all` | the old page, unchanged — it is what people grep |
+
+  The reference page is preserved word for word; verified by diffing its
+  output against the previous build, with the only difference being a
+  correction noted below. Nothing was rewritten, only rendered three
+  ways.
+
+  `goop help <command>` also handles subcommands: `goop help profile`
+  lists all nine, `goop help machine` all three. And looking up a name
+  that moved points at where it went, which is the common case after the
+  0.4.0 renames:
+
+  ```
+  ✗ no command "check"
+    did you mean:
+      goop profile check
+  ```
+
+- The exit-code line still named `goop check` and `goop audit`, removed
+  in 0.4.0. It says `goop profile check` and `goop machine audit` now.
+
 ### Added
 
 - **`goop reinstall <name>...`** lays the installed version down again

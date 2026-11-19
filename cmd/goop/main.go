@@ -195,8 +195,7 @@ func run(args []string) int {
 	case "version", "--version":
 		return cmdVersion(args[1:])
 	case "-h", "--help", "help":
-		printUsage()
-		return 0
+		return printHelp(args[1:])
 	default:
 		ui.Fail("unknown command %q", args[0])
 		printUsage()
@@ -204,19 +203,9 @@ func run(args []string) int {
 	}
 }
 
-func printUsage() {
-	section := func(title string) { fmt.Fprintln(os.Stderr, ui.Bold(title)) }
-	cmd := func(usage, desc string) {
-		if desc == "" {
-			fmt.Fprintf(os.Stderr, "  %s\n", usage)
-			return
-		}
-		if len(usage) >= 46 {
-			fmt.Fprintf(os.Stderr, "  %s\n      %s\n", usage, ui.Dim(desc))
-			return
-		}
-		fmt.Fprintf(os.Stderr, "  %-46s %s\n", usage, ui.Dim(desc))
-	}
+func buildHelp() []helpEntry {
+	h := &helpCollector{}
+	section, cmd, note, blank := h.section, h.cmd, h.note, h.blank
 
 	section("install & remove")
 	cmd("goop install <spec>... [--profile <name>] [-y]", "spec: [bucket/]name[@constraint], e.g. jq, extras/mpv, jq@1.8.2")
@@ -235,7 +224,7 @@ func printUsage() {
 	cmd("", "refreshes buckets first if stale (--no-bucket-refresh skips) -- without that it would report 'up to date' against old data")
 	cmd("", "--dry-run plans only, -y skips the prompt, -v lists the packages already current")
 	cmd("", "a non-interactive run (CI, a pipe) proceeds without asking")
-	fmt.Fprintln(os.Stderr)
+	blank()
 
 	section("inspect")
 	cmd("goop list [--tree]", "installed apps; --tree groups them by profile, nesting dependencies")
@@ -256,7 +245,7 @@ func printUsage() {
 	cmd("", "with no name, also prunes PATH entries left by superseded versions (under <root>\\apps only)")
 	cmd("goop search <query> [--bin]", "query is a case-insensitive regex matched against manifest names")
 	cmd("", "--bin also matches each manifest's `bin` field (e.g. `rg` -> ripgrep), decoding every manifest so slower")
-	fmt.Fprintln(os.Stderr)
+	blank()
 
 	section("buckets")
 	cmd("goop bucket add <name> <url> [git|archive]", "archive needs no Git (FR-21); auto-detected from the URL")
@@ -268,15 +257,15 @@ func printUsage() {
 	cmd("", "--versions decodes every manifest to add versions and commands; --json for the full data")
 	cmd("goop bucket update [name]", "")
 	cmd("goop migrate [--dry-run]", "copy every Scoop bucket + app into goop, independent of Scoop (safe to uninstall it after)")
-	fmt.Fprintln(os.Stderr)
+	blank()
 
 	section("maven repos")
 	cmd("goop maven-repo add <name> <url>", "e.g. https://repo1.maven.org/maven2, or a private Artifactory Maven repo")
 	cmd("goop maven-repo list", "")
 	cmd("goop maven-repo remove <name>", "")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Priority order like buckets: an unqualified maven: spec searches all configured repos in order."))
-	fmt.Fprintln(os.Stderr)
+	blank()
+	note("Priority order like buckets: an unqualified maven: spec searches all configured repos in order.")
+	blank()
 
 	section("profiles")
 	cmd("goop profile list", "MEMBERS is how many apps each profile references")
@@ -287,10 +276,10 @@ func printUsage() {
 	cmd("goop profile reset", "merge every profile into default and delete the named ones; nothing is uninstalled")
 	cmd("goop why <name>", "which profile(s) reference name")
 
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("A profile is a named group of app names, not an isolated environment -- installs stay global/shared."))
-	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("`goop install` files packages under `default` unless `--profile` says otherwise."))
-	fmt.Fprintln(os.Stderr)
+	blank()
+	note("A profile is a named group of app names, not an isolated environment -- installs stay global/shared.")
+	note("`goop install` files packages under `default` unless `--profile` says otherwise.")
+	blank()
 
 	section("profiles -- what a repository needs")
 	cmd("goop profile check <file> [profile...] [--json]", "compare this machine to the profiles a file declares; exit 3 on deviation")
@@ -302,7 +291,7 @@ func printUsage() {
 	cmd("", "already-installed packages are only re-filed, never reinstalled")
 	cmd("goop profile export --out <file> --profile <name>...", "")
 	cmd("", "maintainer: pin local profiles to a file, versions and manifest digests from receipts")
-	fmt.Fprintln(os.Stderr)
+	blank()
 
 	section("whole machine")
 	cmd("goop machine export [--out <file>]", "capture this machine: its buckets and every installed package")
@@ -312,7 +301,7 @@ func printUsage() {
 	cmd("goop digest <name>... | --all [--recheck]", "record a manifest digest for installs that have none (older goop, or adopted)")
 	cmd("", "only when the bucket still offers that exact version and every recorded field matches")
 	cmd("", "--recheck also reports versions a bucket has republished since you installed them")
-	fmt.Fprintln(os.Stderr)
+	blank()
 
 	section("auth")
 	cmd("goop auth add <host> bearer", "")
@@ -320,14 +309,14 @@ func printUsage() {
 	cmd("goop auth remove <host>", "")
 	cmd("goop auth list", "hosts + type only, secrets are never shown (FR-34)")
 	cmd("", "the token/password is prompted for, never passed as an argument -- pipe it in for CI")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Credentials resolve env var -> Credential Manager -> anonymous (FR-33)."))
-	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Env var for a host: GOOP_AUTH_<HOST>, set to \"bearer:<token>\" or \"basic:<user>:<password>\"."))
-	fmt.Fprintln(os.Stderr)
+	blank()
+	note("Credentials resolve env var -> Credential Manager -> anonymous (FR-33).")
+	note("Env var for a host: GOOP_AUTH_<HOST>, set to \"bearer:<token>\" or \"basic:<user>:<password>\".")
+	blank()
 
 	section("provenance & signatures")
 	cmd("goop verify <file> <sigfile> <pubkey>", "verify a minisign signature (FR-41/A5)")
-	fmt.Fprintln(os.Stderr)
+	blank()
 
 	section("config")
 	cmd("goop config get-root", "the install root goop is currently using, and where that came from")
@@ -341,30 +330,30 @@ func printUsage() {
 	cmd("goop config get-cache-limit", "the download-cache ceiling, plus what the cache currently holds")
 	cmd("goop config set-cache-limit <size>", "e.g. 5GB, 500MB, 0 (keep nothing), unlimited; evicts oldest-first when over")
 	cmd("goop config unset-cache-limit", "back to unlimited (nothing is ever evicted)")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Cache holds verified downloads, so clearing it only costs a re-download."))
-	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Inspect/clear it with `goop cache`; the limit above evicts oldest-first once exceeded."))
+	blank()
+	note("Cache holds verified downloads, so clearing it only costs a re-download.")
+	note("Inspect/clear it with `goop cache`; the limit above evicts oldest-first once exceeded.")
 	cmd("goop config get-bucket-ttl", "how long buckets stay fresh before install refreshes them")
 	cmd("goop config set-bucket-ttl <dur>", "e.g. 24h to refresh less often, 0 to never auto-refresh (default 3h)")
 	cmd("goop config unset-bucket-ttl", "back to the 3h default")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Resolution order: $GOOP_HOME (if set) -> persisted root -> <user home>\\goop."))
-	fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim("Same pattern for proxy: HTTP_PROXY/HTTPS_PROXY env vars (if set) -> persisted proxy -> none."))
-	fmt.Fprintln(os.Stderr)
+	blank()
+	note("Resolution order: $GOOP_HOME (if set) -> persisted root -> <user home>\\goop.")
+	note("Same pattern for proxy: HTTP_PROXY/HTTPS_PROXY env vars (if set) -> persisted proxy -> none.")
+	blank()
 
 	section("shell completion")
 	cmd("goop completion <powershell|bash> --install", "register it in your shell profile automatically (idempotent, appends only)")
 	cmd("goop completion powershell", "or print it; load with: goop completion powershell | Out-String | Invoke-Expression")
 	cmd("goop completion bash", "or print it (e.g. Git Bash); load with: eval \"$(goop completion bash)\"")
-	fmt.Fprintln(os.Stderr)
+	blank()
 
 	section("about")
 	cmd("goop version", "goop's own version, commit and build date -- quote it in bug reports")
 	cmd("goop self-update [--dry-run] [-y] [--force]", "shows the running and available versions, then asks; never automatic (D7)")
 	cmd("", "refuses to go backwards unless --force -- a local build is not an older release")
-	fmt.Fprintln(os.Stderr)
+	blank()
 
-	fmt.Fprintf(os.Stderr, "%s 0 ok, 1 error, 2 usage, 3 deviation detected ('goop check', 'goop audit')\n", ui.Bold("exit codes:"))
+	return h.entries
 }
 
 func cmdVerify(args []string) int {
