@@ -13,6 +13,42 @@ built from — quote it in bug reports.
 
 ## [Unreleased]
 
+### Added
+
+- **`goop reinstall <name>...`** lays the installed version down again
+  from scratch, files included.
+
+  `goop reset` rebuilds shims, shortcuts and environment entries from the
+  record without touching a file, which repairs the wiring and nothing
+  else. When the files themselves are the problem — a half-extracted
+  archive, something edited by hand, an app that broke its own
+  installation — the only route was uninstall then install, and that
+  **drops the package out of every profile that named it** and back into
+  `default`, turning a committed profile file red.
+
+  What survives, and why it survives rather than being put back: a
+  reinstall never uninstalls. The install path does not touch profile
+  membership at all (`Install` and `InstallInto` do, and this calls
+  neither), so membership and persisted data are preserved by
+  construction. The plan says so before asking, since that is the whole
+  reason to reach for this command instead of the two-step:
+
+  ```
+  1 package(s) to reinstall
+  PACKAGE  VERSION  STAYS IN PROFILE  DATA KEPT
+  jq       1.8.2    chipA             6B
+  ```
+
+  It reinstalls the version you have — this is a repair, not an update,
+  and `goop update` is what moves a version. That means the bucket must
+  still offer that version, since a bucket carries one manifest per
+  package; when it has moved on, the refusal names both versions and
+  points at `goop update` rather than quietly installing something else.
+
+  Still atomic: the work happens in a staging directory and commits with
+  the same rename as any install, so a failed reinstall leaves the
+  current installation exactly where it was.
+
 ### Fixed
 
 - **Editing a credential's password in the Windows Credential Manager

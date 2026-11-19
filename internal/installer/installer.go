@@ -233,7 +233,7 @@ func Install(spec string) (Record, error) {
 // keep a hidden "active profile" instead, which made where a package
 // landed depend on a setting made days earlier.
 func InstallInto(spec, profileName string) (Record, error) {
-	rec, err := installSpec(spec, nil, false)
+	rec, err := installSpec(spec, nil, false, false)
 	if err != nil {
 		return Record{}, err
 	}
@@ -257,7 +257,7 @@ func InstallInto(spec, profileName string) (Record, error) {
 // (installDependencies' own recursive call) always stays quiet=false
 // regardless -- that's genuine new work happening mid-update, not a
 // redundant restatement of something the caller already reports.
-func installSpec(spec string, stack []string, quiet bool) (Record, error) {
+func installSpec(spec string, stack []string, quiet, force bool) (Record, error) {
 	if strings.HasPrefix(spec, "maven:") {
 		return installMaven(spec)
 	}
@@ -328,7 +328,7 @@ func installSpec(spec string, stack []string, quiet bool) (Record, error) {
 		return Record{}, err
 	}
 
-	return installResolved(appName, bucketName, archKey, resolved, quiet)
+	return installResolved(appName, bucketName, archKey, resolved, quiet, force)
 }
 
 // installDependencies ensures every entry in depends is installed
@@ -359,7 +359,7 @@ func installDependencies(parent string, depends []string, stack []string) error 
 		}
 
 		Logf("%s: installing dependency %s", parent, dep.Name)
-		if _, err := installSpec(raw, stack, false); err != nil {
+		if _, err := installSpec(raw, stack, false, false); err != nil {
 			return fmt.Errorf("%s: dependency %s: %w", parent, dep.Name, err)
 		}
 	}
@@ -371,7 +371,7 @@ func installDependencies(parent string, depends []string, stack []string) error 
 // already-resolved manifest. Install uses this after resolving appName
 // against a bucket; Sync uses it directly against a lockfile entry's
 // frozen fields, with no bucket involved at all (FR-11).
-func installResolved(appName, bucketName, archKey string, resolved manifest.Resolved, quiet bool) (Record, error) {
+func installResolved(appName, bucketName, archKey string, resolved manifest.Resolved, quiet, force bool) (Record, error) {
 	if err := paths.EnsureLayout(); err != nil {
 		return Record{}, err
 	}
@@ -393,7 +393,7 @@ func installResolved(appName, bucketName, archKey string, resolved manifest.Reso
 	}
 
 	versionDir := paths.AppVersion(appName, resolved.Version)
-	if rec, ok := readRecord(versionDir); ok && rec.Ready() {
+	if rec, ok := readRecord(versionDir); ok && rec.Ready() && !force {
 		if !quiet {
 			Logf("%s %s already installed", appName, resolved.Version)
 		}
@@ -401,6 +401,16 @@ func installResolved(appName, bucketName, archKey string, resolved manifest.Reso
 			return Record{}, err
 		}
 		return rec, nil
+	} else if ok && force {
+		// Asked for explicitly: the files are wrong and the record cannot
+		// tell, because a record describes what was installed and not
+		// what is on disk now. Same clearing as the unfinished case
+		// below -- os.Rename will not replace a directory, so the staged
+		// install cannot commit over one that is still there.
+		Logf("%s %s: reinstalling", appName, resolved.Version)
+		if err := os.RemoveAll(versionDir); err != nil {
+			return Record{}, fmt.Errorf("clear the existing install of %s: %w", appName, err)
+		}
 	} else if ok {
 		// A record that is not ready describes an install that committed
 		// and then failed before its shims existed. Clear it out so the

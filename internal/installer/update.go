@@ -52,7 +52,7 @@ func Update(appName string) (UpdateResult, error) {
 	if rec.Bucket != "" && configuredBucket(rec.Bucket) {
 		spec = rec.Bucket + "/" + appName
 	}
-	newRec, err := installSpec(spec, nil, true)
+	newRec, err := installSpec(spec, nil, true, false)
 	if err != nil {
 		return UpdateResult{}, err
 	}

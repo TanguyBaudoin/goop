@@ -56,5 +56,5 @@ func installMaven(spec string) (Record, error) {
 		URLs:    []string{url},
 		Hashes:  []string{hash},
 	}
-	return installResolved(coord.ArtifactID, "maven", archKey, resolved, false)
+	return installResolved(coord.ArtifactID, "maven", archKey, resolved, false, false)
 }

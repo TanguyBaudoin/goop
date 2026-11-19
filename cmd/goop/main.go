@@ -149,6 +149,8 @@ func run(args []string) int {
 		return cmdCleanup(args[1:])
 	case "reset":
 		return cmdReset(args[1:])
+	case "reinstall":
+		return cmdReinstall(args[1:])
 	case "hold":
 		return cmdHold(args[1:], true)
 	case "unhold":
@@ -247,6 +249,9 @@ func printUsage() {
 	cmd("goop cache rm [pattern...]", "delete cached files matching any pattern; no pattern empties the cache")
 	cmd("", "patterns match anywhere in the filename, so `goop cache rm firefox` works")
 	cmd("goop reset <name>... | --all", "rebuild shims/shortcuts/env from the install record; files untouched")
+	cmd("goop reinstall <name>... [-y]", "lay the installed version down again from scratch, files included")
+	cmd("", "same version (`goop update` is what moves one); profile membership and persisted data are kept")
+	cmd("", "for when the files are wrong, where `reset` only repairs the wiring around them")
 	cmd("goop cleanup [name] [--dry-run] [-y]", "remove versions an update superseded; `current` is never touched")
 	cmd("", "with no name, also prunes PATH entries left by superseded versions (under <root>\\apps only)")
 	cmd("goop search <query> [--bin]", "query is a case-insensitive regex matched against manifest names")
