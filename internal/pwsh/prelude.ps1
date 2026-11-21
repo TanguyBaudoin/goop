@@ -300,54 +300,145 @@ function goop_quote_arg($s) {
     return $result
 }
 
+# Invoke-ExternalCommand, ported from real Scoop's lib/core.ps1 rather
+# than approximated.
+#
+# The previous version declared -RunAs, -Quiet and -LogPath and then
+# ignored all three. -RunAs is the one that mattered: 33 manifest scripts
+# ask for elevation with it, Scoop honours it by switching to
+# ShellExecute with the RunAs verb, and goop silently dropped it -- so
+# the installer ran unelevated and the manifest discarded the result with
+# `| Out-Null`. -LogPath (11 scripts) and -Quiet (3) were ignored the
+# same way.
+#
+# Three modes, because they are mutually exclusive at the Windows level:
+# ShellExecute cannot redirect the child's streams, which is exactly why
+# always redirecting made -RunAs impossible to honour.
+#
+#   RunAs/Quiet -> ShellExecute; the child writes to its own console
+#   LogPath     -> redirect both streams into the log file
+#   otherwise   -> redirect and echo, so goop's own log keeps the output
+#
+# A non-zero exit is now reported rather than returned silently: Scoop
+# prints "Exit code was N!" and so does this, because a failed installer
+# that says nothing is how a package comes to be recorded as installed
+# when it is not.
+#
+# Argument escaping is deliberately left as goop's goop_quote_arg rather
+# than ported from Scoop's regex splitting. That is a separate, riskier
+# change that would affect every call site, not only the elevating ones.
 function Invoke-ExternalCommand {
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'Default')]
+    [OutputType([Boolean])]
     param(
         [Parameter(Mandatory = $true, Position = 0)]
         [Alias('Path')]
+        [ValidateNotNullOrEmpty()]
         [string]$FilePath,
         [Parameter(Position = 1)]
         [Alias('Args')]
         [string[]]$ArgumentList,
+        [Parameter(ParameterSetName = 'UseShellExecute')]
         [switch]$RunAs,
+        [Parameter(ParameterSetName = 'UseShellExecute')]
         [switch]$Quiet,
         [Alias('Msg')]
         [string]$Activity,
+        [Alias('cec')]
         [Hashtable]$ContinueExitCodes,
+        [Parameter(ParameterSetName = 'Default')]
+        [Alias('Log')]
         [string]$LogPath
     )
     if ($Activity) { Write-Host "$Activity " -NoNewline }
+
+    $argv = @()
+    if ($ArgumentList) { $argv = @($ArgumentList) }
+
+    $redirectToLog = $false
+    if ($LogPath) {
+        if ($FilePath -match '^msiexec(\.exe)?$') {
+            # msiexec writes its own log; Scoop passes /lwe instead of
+            # redirecting, because the installer runs detached.
+            $argv += '/lwe'
+            $argv += $LogPath
+        } else {
+            $redirectToLog = $true
+        }
+    }
+
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $FilePath
-    if ($ArgumentList) {
-        $psi.Arguments = (($ArgumentList | ForEach-Object { goop_quote_arg $_ }) -join ' ')
-    }
     $psi.UseShellExecute = $false
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $p = [System.Diagnostics.Process]::Start($psi)
-    # Classic .NET Process deadlock avoided: read both streams
-    # asynchronously *before* WaitForExit, not ReadToEnd() on one then
-    # the other. A child that writes enough to stderr while stdout sits
-    # empty (msiexec routinely does) fills stderr's pipe buffer and
-    # blocks on it while we're still blocked reading stdout to
-    # completion -- neither side ever unblocks the other. Starting both
-    # reads up front drains both pipes concurrently, so WaitForExit is
-    # safe.
-    $outTask = $p.StandardOutput.ReadToEndAsync()
-    $errTask = $p.StandardError.ReadToEndAsync()
-    $p.WaitForExit()
-    $out = $outTask.GetAwaiter().GetResult()
-    $errOut = $errTask.GetAwaiter().GetResult()
-    if ($out) { Write-Host $out }
-    if ($errOut) { Write-Host $errOut -ForegroundColor DarkRed }
-    if ($Activity) { Write-Host "done." }
-    $ok = ($p.ExitCode -eq 0)
-    if (-not $ok -and $ContinueExitCodes -and $ContinueExitCodes.ContainsKey($p.ExitCode)) {
-        Write-Host $ContinueExitCodes[$p.ExitCode]
-        $ok = $true
+    if ($argv.Count -gt 0) {
+        $psi.Arguments = (($argv | ForEach-Object { goop_quote_arg $_ }) -join ' ')
     }
-    return $ok
+    if ($RunAs) {
+        $psi.UseShellExecute = $true
+        $psi.Verb = 'RunAs'
+    }
+    if ($Quiet) {
+        $psi.UseShellExecute = $true
+        $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    }
+
+    $capture = (-not $psi.UseShellExecute)
+    if ($capture) {
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+    }
+
+    $p = New-Object System.Diagnostics.Process
+    $p.StartInfo = $psi
+    try {
+        [void]$p.Start()
+    } catch {
+        # A RunAs launch the user declines at the UAC prompt lands here,
+        # as does an executable that is simply missing. Both are failures
+        # the caller has to be able to see.
+        if ($Activity) { Write-Host 'error.' -ForegroundColor DarkRed }
+        error $_.Exception.Message
+        return $false
+    }
+
+    if ($capture) {
+        # Classic .NET Process deadlock avoided: read both streams
+        # asynchronously *before* WaitForExit, not ReadToEnd() on one then
+        # the other. A child that writes enough to stderr while stdout
+        # sits empty (msiexec routinely does) fills stderr's pipe buffer
+        # and blocks on it while we're still blocked reading stdout to
+        # completion -- neither side ever unblocks the other. Starting
+        # both reads up front drains both pipes concurrently, so
+        # WaitForExit is safe.
+        $outTask = $p.StandardOutput.ReadToEndAsync()
+        $errTask = $p.StandardError.ReadToEndAsync()
+    }
+    $p.WaitForExit()
+    if ($capture) {
+        $out = $outTask.GetAwaiter().GetResult()
+        $errOut = $errTask.GetAwaiter().GetResult()
+        if ($redirectToLog) {
+            $utf8 = New-Object System.Text.UTF8Encoding $false
+            [IO.File]::AppendAllText($LogPath, $out, $utf8)
+            [IO.File]::AppendAllText($LogPath, $errOut, $utf8)
+        } else {
+            if ($out) { Write-Host $out }
+            if ($errOut) { Write-Host $errOut -ForegroundColor DarkRed }
+        }
+    }
+
+    if ($p.ExitCode -ne 0) {
+        if ($ContinueExitCodes -and $ContinueExitCodes.ContainsKey($p.ExitCode)) {
+            if ($Activity) { Write-Host 'done.' -ForegroundColor DarkYellow }
+            warn $ContinueExitCodes[$p.ExitCode]
+            return $true
+        }
+        if ($Activity) { Write-Host 'error.' -ForegroundColor DarkRed }
+        error "Exit code was $($p.ExitCode)!"
+        return $false
+    }
+    if ($Activity) { Write-Host 'done.' -ForegroundColor Green }
+    return $true
 }
 
 function Expand-7zipArchive {

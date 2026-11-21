@@ -15,6 +15,37 @@ built from — quote it in bug reports.
 
 ### Fixed
 
+- **`Invoke-ExternalCommand` ignored `-RunAs`, `-Quiet` and `-LogPath`.**
+  goop's compat function declared all three switches and read none of
+  them, so a manifest asking for any of them got something else. 47 call
+  sites across the buckets are affected. Ported from real Scoop's
+  `lib/core.ps1` rather than approximated again:
+
+  - **`-RunAs` (33 scripts)** now elevates, as Scoop does, by switching
+    to ShellExecute with the `RunAs` verb. It previously ran the
+    installer unelevated and the manifest discarded the result with
+    `| Out-Null`, so an installer that could not possibly have worked was
+    recorded as a successful install. **Visible change: a UAC prompt now
+    appears where goop used to silently skip the elevation.** That is
+    what Scoop does, and what the manifest asks for.
+  - **`-LogPath` (11 scripts)** writes the child's output to the named
+    file instead of the console, with `msiexec` getting `/lwe` rather
+    than redirection — Scoop's own special case, since msiexec logs
+    itself. The file was simply never created before.
+  - **`-Quiet` (3 scripts)** runs with a hidden window.
+
+  Two consequences of matching Scoop are worth knowing. A non-zero exit
+  is now reported as `Exit code was N!` instead of being returned as a
+  bare `$false` that most manifests discard — a failed installer used to
+  say nothing at all. And `-RunAs`/`-Quiet` are mutually exclusive with
+  `-LogPath`, as in Scoop, because ShellExecute cannot redirect the
+  child's streams; combining them now fails loudly instead of letting one
+  switch silently win.
+
+  Argument escaping is deliberately left alone. Scoop's regex-based
+  splitting is a separate, riskier change that would touch every call
+  site rather than only the elevating ones.
+
 - **A manifest `installer` carrying only `args` was ignored, and the
   package reported as installed.** Scoop runs the installer when either
   `file` or `args` is present, defaulting the filename to the first
