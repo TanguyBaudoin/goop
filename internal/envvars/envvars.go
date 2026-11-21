@@ -11,6 +11,7 @@ package envvars
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -46,8 +47,30 @@ func broadcastChange() {
 	)
 }
 
+// subkey is the HKCU subkey this package reads and writes.
+//
+// Always `Environment` in real use. The override exists because nothing
+// else isolates it: a test can point GOOP_HOME, APPDATA and LOCALAPPDATA
+// at a temp directory and still have env_add_path write to the user's
+// real PATH, since the registry is not under any of them. The install
+// harness installs `ack`, which depends on perl, whose manifest uses
+// env_add_path -- so every harness run permanently appended two dead
+// entries to the real per-user PATH. Found with 80 of 98 entries dead on
+// the development machine, about thirty of them from TestInstallHarness
+// temp directories that had long since been deleted.
+//
+// Set GOOP_ENV_REGISTRY_SUBKEY to redirect writes somewhere harmless.
+// Only honoured for a name that is not `Environment`, so this can never
+// be the reason a real install fails to write where it should.
+func subkey() string {
+	if v := os.Getenv("GOOP_ENV_REGISTRY_SUBKEY"); v != "" && v != `Environment` {
+		return v
+	}
+	return `Environment`
+}
+
 func openWritable() (registry.Key, error) {
-	k, _, err := registry.CreateKey(registry.CURRENT_USER, `Environment`, registry.QUERY_VALUE|registry.SET_VALUE)
+	k, _, err := registry.CreateKey(registry.CURRENT_USER, subkey(), registry.QUERY_VALUE|registry.SET_VALUE)
 	return k, err
 }
 
@@ -90,12 +113,12 @@ func currentPath(k registry.Key) ([]string, error) {
 // the confusion this package's doc comment describes. Anything reasoning
 // about what goop has written has to look at the registry.
 func PathEntries() ([]string, error) {
-	k, err := registry.OpenKey(registry.CURRENT_USER, `Environment`, registry.QUERY_VALUE)
+	k, err := registry.OpenKey(registry.CURRENT_USER, subkey(), registry.QUERY_VALUE)
 	if err != nil {
 		if err == registry.ErrNotExist {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("open HKCU\\Environment: %w", err)
+		return nil, fmt.Errorf("open HKCU\\%s: %w", subkey(), err)
 	}
 	defer k.Close()
 	return currentPath(k)

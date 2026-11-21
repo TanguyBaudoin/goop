@@ -548,7 +548,7 @@ means building from a clone.
 | 3 | A `sync` on two separate machines yields matching trees | **Partial** | Two independent roots, one host: 135 files compared, 0 unexplained differences (§12.1). Two real hosts still untested |
 | 4 | No plaintext secret on disk, in a log, or in a URL | **Met** | FR-32/FR-35 |
 | 5 | No regression on NR-01 to NR-07, verified point by point | **Partial** | NR-07 partial, see §2.1 |
-| 6 | A full CMake/Ninja build shows no duration regression | **Unverified** | Never measured |
+| 6 | A full CMake/Ninja build shows no duration regression | **Partial** | Per-invocation shim cost measured and reproduced: goop ~9.5 ms, Scoop ~12 ms (§12.2). Full-build comparison did not converge on the test machine |
 | 7 | An existing Scoop install imports without reinstalling packages | **Met** | Real migration performed |
 | 8 | CI fails with a dedicated exit code when state diverges from what is pinned | **Met** | Exit code 3 |
 
@@ -557,12 +557,8 @@ roughly **60×**, not the single order of magnitude specified. The
 difference comes from process startup — Scoop pays a PowerShell
 interpreter per invocation, goop pays a process exec.
 
-**Criterion 6 is unverified, not met.** It was written as a measurement
-and the measurement was never taken. It was also a founding justification
-for the project — the build times that motivated a native shim — and it
-has never been quantified against Scoop. Marking it "met" on the strength
-of the code looking right is exactly the error this column exists to
-prevent.
+Criterion 6 has now been measured in part; §12.2 gives the figures and
+says plainly which half of it did not resolve.
 
 ### 12.1 Criterion 3: what was measured, and what was not
 
@@ -600,6 +596,61 @@ different CPU architecture, a different system locale or code page, and
 any manifest whose script branches on one of those, remain untested. The
 test settles whether the same inputs produce the same tree twice; it is
 blind to inputs that differ because the host does.
+
+### 12.2 Criterion 6: what a shim costs, and what did not resolve
+
+`scripts/bench-shim.ps1` builds one CMake/Ninja project three times,
+changing only how the C compiler is reached: by its own path, through a
+hardlink of goop's `shim-master.exe` with a goop-format sidecar, and
+through a copy of Scoop's shim with a Scoop-format sidecar. The compiler
+binary is identical in all three arms, so any difference is the shim.
+
+**Established — the per-invocation cost.** Averaged over 150–300 calls
+per arm and reproduced across four separate runs, including runs with the
+arms interleaved in random order:
+
+| Reached via | Cost per invocation |
+|---|---|
+| goop's shim | **+9.2 to +10.3 ms** |
+| Scoop's shim | **+11.7 to +13.2 ms** |
+
+goop's shim is consistently the cheaper of the two, by roughly 2.5 ms per
+invocation, despite being a 3 MB Go binary against Scoop's 136 KB one. On
+this measure there is no regression against Scoop — goop is ahead of it.
+
+**Did not resolve — the full build.** Three runs of the 800-unit build
+produced three different orderings of the same three arms, one of which
+had *both* shims finishing faster than calling the compiler directly,
+which no shim can do. The cause is the machine, not the arms: a control
+run with two identical `direct` arms had them agree to 1.0 % and showed
+no effect from position in the pass, confirming the method; but a later
+run on the same machine had a run-to-run spread of 4.4 s on a build of
+about 6 s, which swamps anything a shim could contribute. The script now
+compares its worst intra-arm spread against the smallest difference it
+would report and exits 2 with `INCONCLUSIVE` rather than printing a
+percentage its own data does not support.
+
+Two findings came out of building the harness rather than from running
+it:
+
+- **For a toolchain like gcc, goop puts no shim in the path at all.** The
+  manifest uses `env_add_path`, and goop adds the *versioned* directory
+  (`apps\gcc\15.2.0\bin`) to PATH, so the compiler is executed directly.
+  The per-invocation figures above therefore bound what a shim *can*
+  cost, not what a gcc build pays — which is nothing.
+- Reaching the same compiler through the `current` junction instead of
+  the versioned directory was measurably slower in the one run where the
+  spread was small enough to see it (~10 %). Not established, and noted
+  only because it points at where to look if this is revisited.
+
+**Why this is Partial, not Met.** The criterion asks for a full build
+showing no duration regression, and the full-build half is unresolved on
+the only machine available. Settling it needs an idle machine, and
+ideally a real third-party codebase with a link step rather than 800
+generated units. What is settled is the mechanism and its magnitude: the
+shim costs single-digit milliseconds per invocation, goop's costs less
+than Scoop's, and the toolchain most likely to be built with does not go
+through a shim.
 
 ## 13. Risks
 

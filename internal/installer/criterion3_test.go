@@ -152,6 +152,9 @@ func useRoot(t *testing.T, label string) string {
 	t.Setenv("GOOP_HOME", root)
 	t.Setenv("APPDATA", filepath.Join(base, "appdata"))
 	t.Setenv("LOCALAPPDATA", filepath.Join(base, "localappdata"))
+	// The registry is not under any of those three, and env_add_path
+	// writes there -- see isolateEnvRegistry.
+	isolateEnvRegistry(t)
 	if got := paths.Root(); got != root {
 		t.Fatalf("root %s did not take effect: paths.Root() = %q, want %q", label, got, root)
 	}

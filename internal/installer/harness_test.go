@@ -63,6 +63,14 @@ func TestInstallHarness(t *testing.T) {
 	t.Setenv("GOOP_HOME", root)
 	t.Setenv("APPDATA", filepath.Join(root, "appdata"))
 	t.Setenv("LOCALAPPDATA", filepath.Join(root, "localappdata"))
+	// Nor do those three isolate the registry, which is where
+	// env_add_path writes. This harness installs `ack`, whose dependency
+	// perl uses env_add_path, so every run used to append two entries to
+	// the real per-user PATH naming this temp directory -- and the temp
+	// directory is gone by the next run. They accumulated: 80 of 98
+	// entries dead on the development machine, about thirty of them from
+	// previous TestInstallHarness runs.
+	isolateEnvRegistry(t)
 
 	bucketURL := os.Getenv("GOOP_HARNESS_BUCKET_URL")
 	if bucketURL == "" {

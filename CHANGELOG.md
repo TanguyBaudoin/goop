@@ -15,6 +15,22 @@ built from — quote it in bug reports.
 
 ### Fixed
 
+- **Running goop's own install tests no longer pollutes your real PATH.**
+  A test could point `GOOP_HOME`, `APPDATA` and `LOCALAPPDATA` at a temp
+  directory and still have `env_add_path` write to `HKCU\Environment`,
+  because the registry sits under none of them. The install harness
+  installs `ack`, which depends on perl, whose manifest uses
+  `env_add_path` — so every harness run appended two entries naming a
+  temp directory that was deleted moments later, and nothing ever removed
+  them. Found while benchmarking: **80 of 98 per-user PATH entries on the
+  development machine were dead, about thirty of them from previous
+  `TestInstallHarness` runs.** `envvars` now honours
+  `GOOP_ENV_REGISTRY_SUBKEY`, which the real-install tests set to a
+  scratch subkey they delete afterwards. The override refuses the value
+  `Environment`, so it can never be the reason a real install writes to
+  the wrong place. This only affects people running goop's test suite;
+  installing packages normally was never affected.
+
 - **Two machines built from the same profile file now hold byte-identical
   profile bookkeeping.** `profiles/<name>.json` recorded its members in
   whatever order they happened to arrive: install order on the machine
@@ -43,6 +59,23 @@ built from — quote it in bug reports.
   it is two roots on one host, so a second Windows build, architecture
   or locale remains untested, and the criterion is marked Partial rather
   than Met.
+
+- **Acceptance criterion 6 is now measured in part.** It asked that a
+  full CMake/Ninja build show no duration regression, and had never been
+  quantified. `scripts/bench-shim.ps1` builds the same project three
+  times, changing only how the compiler is reached: directly, through
+  goop's shim, and through Scoop's. The per-invocation cost reproduced
+  across four runs — **goop's shim costs ~9.5 ms per invocation against
+  Scoop's ~12 ms**, so goop is the cheaper of the two despite a 3 MB Go
+  binary against Scoop's 136 KB. The full-build comparison did *not*
+  resolve: three runs gave three orderings, one of them impossible, and
+  the machine's run-to-run spread reached 4.4 s on a 6 s build. The
+  script now detects that itself — it compares its worst intra-arm spread
+  against the smallest difference it would claim and exits 2 with
+  `INCONCLUSIVE` rather than printing an unsupported percentage. Also
+  worth knowing: for a toolchain like gcc, goop puts the versioned `bin`
+  directory on PATH via `env_add_path`, so the compiler runs with no shim
+  in front of it at all. REQUIREMENTS §12.2 has the detail.
 
 ## [0.8.0] — 2026-11-19
 
