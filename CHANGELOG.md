@@ -13,6 +13,32 @@ built from — quote it in bug reports.
 
 ## [Unreleased]
 
+### Changed
+
+- **The installer now asks where goop should live.** It used to pick
+  `<home>\goop` silently, which is a reasonable default and a poor way to
+  learn that a package manager has chosen your disk for you. An
+  interactive run now offers a default and takes Enter as agreement.
+
+  The default is the right one rather than always `<home>\goop`: if an
+  install already exists, its root is read from
+  `%LOCALAPPDATA%\goop\config.json` and offered instead, so re-running
+  the installer cannot orphan the packages you already have.
+
+  Nothing is asked when stdin is not a console, so unattended installs
+  are unchanged — and an explicit choice is never second-guessed, whether
+  it came from `-GoopDir` or from `GOOP_HOME`. The latter remains the way
+  to choose a location through `iex`, where parameters cannot bind:
+
+      $env:GOOP_HOME = 'D:\goop'; irm <url> | iex
+
+  An answer is expanded (`~`, `%VAR%`), made absolute, and stripped of a
+  trailing separator — without that last part, `<home>\goop\` compared
+  unequal to `<home>\goop` and the installer persisted a `GOOP_HOME` it
+  did not need. Pointing it at a directory that already holds unrelated
+  files asks for confirmation first, since goop would create `apps\`,
+  `bin\`, `shims\`, `buckets\` and `cache\` inside it.
+
 ### Fixed
 
 - **Running goop's own install tests no longer pollutes your real PATH.**

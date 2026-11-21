@@ -19,7 +19,17 @@
 
 .PARAMETER GoopDir
     Where goop lives (apps/buckets/shims/cache and goop.exe itself).
-    Defaults to the GOOP_HOME environment variable, else <home>\goop.
+
+    When neither this parameter nor GOOP_HOME is set, an interactive run
+    asks, offering the right default: the root of an existing install if
+    there is one, else <home>\goop. Pressing Enter accepts it.
+
+    Nothing is asked when stdin is not a console, so unattended installs
+    behave exactly as before. To choose the location without being asked
+    -- including through iex, where parameters cannot bind -- set
+    GOOP_HOME first:
+
+        $env:GOOP_HOME = 'D:\goop'; irm <url> | iex
 
 .PARAMETER Version
     Release to install, e.g. 0.1.0 or v0.1.0. Defaults to the latest
@@ -60,11 +70,105 @@ $Repo = 'TanguyBaudoin/goop'
 function Write-Step($msg) { Write-Host $msg -ForegroundColor Cyan }
 function Write-Ok($msg) { Write-Host $msg -ForegroundColor Green }
 
+# Where an existing install already lives, so re-running the installer
+# offers that instead of sending goop to <home>\goop and orphaning the
+# packages already installed elsewhere. goop persists a non-default root
+# in %LOCALAPPDATA%\goop\config.json (paths.ConfiguredRoot); this reads
+# the same file rather than guessing.
+function Get-ExistingRoot {
+    $cfg = Join-Path $env:LOCALAPPDATA 'goop\config.json'
+    if (-not (Test-Path $cfg)) { return $null }
+    try {
+        $root = (Get-Content $cfg -Raw | ConvertFrom-Json).root
+    } catch {
+        return $null   # a corrupt config is not this script's problem to fix
+    }
+    if ($root -and (Test-Path (Join-Path $root 'bin\goop.exe'))) { return $root }
+    return $null
+}
+
+# Prompting is only ever a convenience: it must never be the reason an
+# unattended install hangs. UserInteractive alone is not enough -- it
+# stays true in plenty of contexts with no console attached -- so the
+# redirected-stdin check is what actually decides.
+function Test-CanPrompt {
+    try {
+        return [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
+    } catch {
+        return $false
+    }
+}
+
+function Resolve-InstallDir([string]$raw) {
+    $v = [Environment]::ExpandEnvironmentVariables($raw.Trim().Trim('"'))
+    if ($v.StartsWith('~')) { $v = Join-Path $HOME $v.Substring(1).TrimStart('\', '/') }
+    # [IO.Path]::GetFullPath, not Resolve-Path: the directory does not
+    # exist yet, and Resolve-Path fails on paths that do not.
+    $full = [IO.Path]::GetFullPath($v)
+    # GetFullPath keeps a trailing separator, and "<home>\goop\" compares
+    # unequal to "<home>\goop" -- which would make the installer persist a
+    # GOOP_HOME it does not need, for a root that is in fact the default.
+    # A drive root has to keep its separator: "D:" is not "D:\".
+    if ($full.Length -gt 3) { $full = $full.TrimEnd('\', '/') }
+    return $full
+}
+
+function Read-InstallDir([string]$default) {
+    if (-not (Test-CanPrompt)) { return $default }
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        $answer = Read-Host "Where should goop live? [$default]"
+        if ([string]::IsNullOrWhiteSpace($answer)) { return $default }
+        try {
+            $resolved = Resolve-InstallDir $answer
+        } catch {
+            Write-Host "  not a usable path: $($_.Exception.Message)" -ForegroundColor Yellow
+            continue
+        }
+        # A relative answer is resolved against the current directory,
+        # which through iex is wherever the user happened to be standing.
+        # Showing the result is the difference between a convenience and a
+        # surprise.
+        if ($resolved -ne $answer.Trim().Trim('"')) {
+            Write-Host "  -> $resolved"
+        }
+        if (Test-Path $resolved -PathType Leaf) {
+            Write-Host "  that is a file, not a directory" -ForegroundColor Yellow
+            continue
+        }
+        # goop creates apps\, bin\, shims\, buckets\ and cache\ under this
+        # directory. Pointing it at something that already holds unrelated
+        # files (a home directory, a drive root) is almost always a typo,
+        # and one that is tedious to undo, so it gets a confirmation.
+        if ((Test-Path $resolved) -and
+            -not (Test-Path (Join-Path $resolved 'bin\goop.exe')) -and
+            @(Get-ChildItem -LiteralPath $resolved -Force -ErrorAction SilentlyContinue).Count -gt 0) {
+            Write-Host "  $resolved already exists and is not a goop install." -ForegroundColor Yellow
+            Write-Host "  goop would create apps\, bin\, shims\, buckets\ and cache\ inside it." -ForegroundColor Yellow
+            if ((Read-Host "  use it anyway? [y/N]") -notmatch '^(y|yes|o|oui)$') { continue }
+        }
+        return $resolved
+    }
+    Write-Host "Keeping the default: $default" -ForegroundColor Yellow
+    return $default
+}
+
 # Parameters are unbindable when the script arrives through iex, so every
 # one of them falls back to an environment variable.
+#
+# An explicit choice -- the parameter, or GOOP_HOME -- is taken as final
+# and never second-guessed with a prompt. Only a run that expressed no
+# preference gets asked.
 if (-not $GoopDir) {
-    $GoopDir = if ($env:GOOP_HOME) { $env:GOOP_HOME } else { Join-Path $HOME 'goop' }
+    if ($env:GOOP_HOME) {
+        $GoopDir = $env:GOOP_HOME
+    } else {
+        $existing = Get-ExistingRoot
+        $suggested = if ($existing) { $existing } else { Join-Path $HOME 'goop' }
+        if ($existing) { Write-Host "Found an existing install at $existing" }
+        $GoopDir = Read-InstallDir $suggested
+    }
 }
+$GoopDir = Resolve-InstallDir $GoopDir
 if (-not $Version -and $env:GOOP_VERSION) { $Version = $env:GOOP_VERSION }
 if (-not $From -and $env:GOOP_FROM) { $From = $env:GOOP_FROM }
 if (-not $FromSource -and $env:GOOP_FROM_SOURCE -eq '1') { $FromSource = $true }
