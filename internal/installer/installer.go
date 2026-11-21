@@ -25,7 +25,6 @@ import (
 	"github.com/TanguyBaudoin/goop/internal/paths"
 	"github.com/TanguyBaudoin/goop/internal/profile"
 	"github.com/TanguyBaudoin/goop/internal/pwsh"
-	goopshim "github.com/TanguyBaudoin/goop/internal/shim"
 	"github.com/TanguyBaudoin/goop/internal/shimbin"
 	"github.com/TanguyBaudoin/goop/internal/vercmp"
 )
@@ -663,38 +662,6 @@ func showNotes(notes []string, dir, persistDir string) {
 	for _, line := range notes {
 		Logf("%s", replacer.Replace(line))
 	}
-}
-
-// runInstallHook executes a manifest installer/uninstaller entry: either
-// a script (via the pwsh bridge) or a File to run directly with Args.
-func runInstallHook(appName, label string, hook manifest.InstallHook, dir string, vars pwsh.Vars) error {
-	if hook.Script != "" {
-		Logf("%s: running %s.script", appName, label)
-		out, err := pwsh.Run(hook.Script, vars)
-		if strings.TrimSpace(out) != "" {
-			Logf("%s", strings.TrimRight(out, "\n"))
-		}
-		if err != nil {
-			return fmt.Errorf("%s: %s.script: %w", appName, label, err)
-		}
-		return nil
-	}
-	if hook.File != "" {
-		target := filepath.Join(dir, filepath.FromSlash(hook.File))
-		Logf("%s: running %s %v", appName, hook.File, hook.Args)
-		cmdLine := goopshim.QuoteArg(target)
-		for _, a := range hook.Args {
-			cmdLine += " " + goopshim.QuoteArg(a)
-		}
-		exitCode, err := goopshim.Run(target, cmdLine)
-		if err != nil {
-			return fmt.Errorf("%s: %s: %w", appName, label, err)
-		}
-		if exitCode != 0 {
-			return fmt.Errorf("%s: %s %s exited with code %d", appName, label, hook.File, exitCode)
-		}
-	}
-	return nil
 }
 
 // placeAsset downloads+verifies one manifest URL and gets its content

@@ -11,6 +11,37 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
+## [Unreleased]
+
+### Fixed
+
+- **A manifest `installer` carrying only `args` was ignored, and the
+  package reported as installed.** Scoop runs the installer when either
+  `file` or `args` is present, defaulting the filename to the first
+  URL's; goop checked `file` alone, so it downloaded, ran nothing, and
+  said the install had succeeded. Twenty hooks across `main`, `extras`,
+  `versions` and `nonportable` are affected — `vulkan`, `latex` and
+  `miktex` among them — counted with goop's own decoder rather than a
+  hand scan.
+
+  Two further divergences from Scoop's `Invoke-Installer` came out of
+  checking goop against its source line by line:
+
+  - **`$dir`, `$version` and `$global` were not substituted into the
+    arguments.** Five manifests were being run with the literal string
+    `$dir` as an argument, which is worse than being skipped: the
+    installer did run, against a path that does not exist.
+  - **A `.ps1` target was spawned as a process** rather than invoked as
+    PowerShell, which hands it to whatever is registered for the
+    extension. Four manifests need it, including `main`'s `pshazz`.
+
+  Scoop's two safety checks are now kept as well: the resolved target
+  must lie inside the app directory — `file` is a relative path, so
+  without that check a manifest could name a path climbing out to
+  `Windows\System32` and have goop run a real program with the
+  manifest's own arguments — and it must exist. Both refuse rather than
+  continue.
+
 ## [0.9.0] — 2026-11-21
 
 One command that was missing, one question the installer should always
