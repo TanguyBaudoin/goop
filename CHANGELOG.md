@@ -13,6 +13,74 @@ built from — quote it in bug reports.
 
 ## [Unreleased]
 
+### Added
+
+- **`goop doctor` checks an installation and reports what is wrong.** It
+  changes nothing: every finding names the command that fixes it, because
+  `doctor` is what you reach for when you do not yet know what is wrong,
+  and that is the worst moment to start changing things.
+
+  Findings are split into **problems** (something is already broken) and
+  **untidy** (it works, but disk or PATH is carrying things nobody needs),
+  because the two call for different reactions. Exit 3 when anything was
+  found, matching `goop profile check` and `goop machine audit`, so a
+  scheduled run or a CI step can act on it; `-q` gives the verdict without
+  the report.
+
+  What it looks for, each because it happened on a real machine and went
+  unnoticed until something else failed:
+
+  - an install interrupted before its shims were created -- the files look
+    complete and the package has no working commands
+  - `current` that is no longer a link, which is how a self-updating app
+    (Zen Browser) made itself permanently unupdatable
+  - shims pointing at files that are not there, or still into a staging
+    directory -- the failure that survives a green build and a clean
+    `goop profile check`, and shows up only when someone runs the command
+  - the live version having no install record, so goop cannot remove it
+    cleanly; old version directories without one are reported separately
+    as leftovers, since the record still exists and only moved
+  - persisted data for packages no longer installed, with its size -- five
+    such directories were sitting on the development machine, the largest
+    3.7 GB
+  - PATH entries under the goop root left by superseded versions, or
+    pointing nowhere at all
+
+  Run against the machine it was written on, it found three real faults
+  first time, one of which had not been noticed by hand.
+
+- **Acceptance criterion 3 is now tested rather than assumed.** The
+  specification asks that a `sync` on two separate machines yield
+  matching trees; that had never been run. A new opt-in test installs
+  into one isolated root, exports a profile file from its receipts, syncs
+  a second independent root from that file, and compares the two trees
+  file by file — 135 files, every reparse point, and every receipt field
+  but `installed_at`. Differences are classified rather than merely
+  counted: 129 identical, 6 identical once the install path is
+  normalised (the shim sidecars and 7zip's `.reg`, which must name an
+  absolute path), 0 unexplained. It is what found the ordering bug above.
+  REQUIREMENTS §12.1 records what this measures and what it does not —
+  it is two roots on one host, so a second Windows build, architecture
+  or locale remains untested, and the criterion is marked Partial rather
+  than Met.
+
+- **Acceptance criterion 6 is now measured in part.** It asked that a
+  full CMake/Ninja build show no duration regression, and had never been
+  quantified. `scripts/bench-shim.ps1` builds the same project three
+  times, changing only how the compiler is reached: directly, through
+  goop's shim, and through Scoop's. The per-invocation cost reproduced
+  across four runs — **goop's shim costs ~9.5 ms per invocation against
+  Scoop's ~12 ms**, so goop is the cheaper of the two despite a 3 MB Go
+  binary against Scoop's 136 KB. The full-build comparison did *not*
+  resolve: three runs gave three orderings, one of them impossible, and
+  the machine's run-to-run spread reached 4.4 s on a 6 s build. The
+  script now detects that itself — it compares its worst intra-arm spread
+  against the smallest difference it would claim and exits 2 with
+  `INCONCLUSIVE` rather than printing an unsupported percentage. Also
+  worth knowing: for a toolchain like gcc, goop puts the versioned `bin`
+  directory on PATH via `env_add_path`, so the compiler runs with no shim
+  in front of it at all. REQUIREMENTS §12.2 has the detail.
+
 ### Changed
 
 - **The installer now asks where goop should live.** It used to pick
@@ -68,40 +136,6 @@ built from — quote it in bug reports.
   now stored sorted. Visible effect: `goop profile show` lists members in
   the same order everywhere, and an exported file no longer produces
   spurious diffs between two machines.
-
-### Added
-
-- **Acceptance criterion 3 is now tested rather than assumed.** The
-  specification asks that a `sync` on two separate machines yield
-  matching trees; that had never been run. A new opt-in test installs
-  into one isolated root, exports a profile file from its receipts, syncs
-  a second independent root from that file, and compares the two trees
-  file by file — 135 files, every reparse point, and every receipt field
-  but `installed_at`. Differences are classified rather than merely
-  counted: 129 identical, 6 identical once the install path is
-  normalised (the shim sidecars and 7zip's `.reg`, which must name an
-  absolute path), 0 unexplained. It is what found the ordering bug above.
-  REQUIREMENTS §12.1 records what this measures and what it does not —
-  it is two roots on one host, so a second Windows build, architecture
-  or locale remains untested, and the criterion is marked Partial rather
-  than Met.
-
-- **Acceptance criterion 6 is now measured in part.** It asked that a
-  full CMake/Ninja build show no duration regression, and had never been
-  quantified. `scripts/bench-shim.ps1` builds the same project three
-  times, changing only how the compiler is reached: directly, through
-  goop's shim, and through Scoop's. The per-invocation cost reproduced
-  across four runs — **goop's shim costs ~9.5 ms per invocation against
-  Scoop's ~12 ms**, so goop is the cheaper of the two despite a 3 MB Go
-  binary against Scoop's 136 KB. The full-build comparison did *not*
-  resolve: three runs gave three orderings, one of them impossible, and
-  the machine's run-to-run spread reached 4.4 s on a 6 s build. The
-  script now detects that itself — it compares its worst intra-arm spread
-  against the smallest difference it would claim and exits 2 with
-  `INCONCLUSIVE` rather than printing an unsupported percentage. Also
-  worth knowing: for a toolchain like gcc, goop puts the versioned `bin`
-  directory on PATH via `env_add_path`, so the compiler runs with no shim
-  in front of it at all. REQUIREMENTS §12.2 has the detail.
 
 ## [0.8.0] — 2026-11-19
 

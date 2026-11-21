@@ -151,6 +151,8 @@ func run(args []string) int {
 		return cmdReset(args[1:])
 	case "reinstall":
 		return cmdReinstall(args[1:])
+	case "doctor":
+		return cmdDoctor(args[1:])
 	case "hold":
 		return cmdHold(args[1:], true)
 	case "unhold":
@@ -237,6 +239,10 @@ func buildHelp() []helpEntry {
 	cmd("goop cache show", "cached installers, biggest first, with the total")
 	cmd("goop cache rm [pattern...]", "delete cached files matching any pattern; no pattern empties the cache")
 	cmd("", "patterns match anywhere in the filename, so `goop cache rm firefox` works")
+	cmd("goop doctor [-q]", "check this installation and report what is wrong; changes nothing")
+	cmd("", "interrupted installs, `current` that is no longer a link, shims pointing nowhere,")
+	cmd("", "versions with no install record, orphaned persisted data, dead PATH entries")
+	cmd("", "each finding names the command that fixes it; exit 3 when anything was found")
 	cmd("goop reset <name>... | --all", "rebuild shims/shortcuts/env from the install record; files untouched")
 	cmd("goop reinstall <name>... [-y]", "lay the installed version down again from scratch, files included")
 	cmd("", "same version (`goop update` is what moves one); profile membership and persisted data are kept")
