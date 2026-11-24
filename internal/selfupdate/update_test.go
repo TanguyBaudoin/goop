@@ -7,7 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/TanguyBaudoin/goop/internal/paths"
 )
 
 // buildStub compiles a binary that reports `goop <version>`, which is all
@@ -62,12 +65,35 @@ func installed(t *testing.T, version string) string {
 	return buildStub(t, dir, version)
 }
 
+// installedFlat puts a binary at <root>in\goop.exe with bin as a real
+// directory -- the layout every install had before goop became a package
+// -- so an update from it exercises the migration rather than skipping
+// straight to the versioned shape.
+func installedFlat(t *testing.T, version string) string {
+	t.Helper()
+	bin := paths.Bin()
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return buildStub(t, bin, version)
+}
+
+// reportedVersion runs a binary and returns the version line it prints.
+func reportedVersion(t *testing.T, exe string) string {
+	t.Helper()
+	out, err := exec.Command(exe, "version").Output()
+	if err != nil {
+		t.Fatalf("running %s: %v", exe, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // The direction that matters, and the one that cannot be tested against
 // real releases: a published version newer than the one running.
 func TestUpdateAt_Upgrades(t *testing.T) {
 	t.Setenv("GOOP_HOME", t.TempDir())
 	base := serveRelease(t, "0.9.9")
-	exe := installed(t, "0.1.0")
+	exe := installedFlat(t, "0.1.0")
 
 	res, err := updateAt(exe, base, "0.1.0", false)
 	if err != nil {
@@ -80,17 +106,27 @@ func TestUpdateAt_Upgrades(t *testing.T) {
 		t.Errorf("new version = %q, want 0.9.9", res.NewVersion)
 	}
 
-	// The binary in place must actually be the new one.
-	out, err := exec.Command(exe, "version").Output()
-	if err != nil {
-		t.Fatalf("running the replaced binary: %v", err)
+	// What PATH points at must be the new version. This is the assertion
+	// that matters: bin is the stable entry point, and an update that
+	// installs a new version without repointing it has changed nothing
+	// as far as a user's shell is concerned.
+	binExe := filepath.Join(paths.Bin(), "goop.exe")
+	if got := reportedVersion(t, binExe); got != "goop 0.9.9" {
+		t.Errorf("%s reports %q, want goop 0.9.9", binExe, got)
 	}
-	if got := string(out); got != "goop 0.9.9\r\n" && got != "goop 0.9.9\n" {
-		t.Errorf("the replaced binary reports %q", got)
+
+	// And it got there by repointing a junction rather than overwriting
+	// a file: both versions must still be installed, so the one being
+	// replaced stays a rollback target instead of becoming a renamed
+	// corpse the way bin\goop.exe.old used to.
+	for _, v := range []string{"0.1.0", "0.9.9"} {
+		vp := filepath.Join(paths.AppVersion("goop", v), "goop.exe")
+		if _, err := os.Stat(vp); err != nil {
+			t.Errorf("goop %s should still be installed at %s: %v", v, vp, err)
+		}
 	}
-	// Nothing is holding it open here, so the swap should leave nothing.
-	if _, err := os.Stat(exe + oldSuffix); !os.IsNotExist(err) {
-		t.Errorf("leftover %s survived a swap that could delete it", exe+oldSuffix)
+	if _, err := os.Stat(filepath.Join(paths.Bin(), "goop.exe.old")); !os.IsNotExist(err) {
+		t.Error("the package layout must not leave a .old behind")
 	}
 }
 

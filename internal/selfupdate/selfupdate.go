@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/TanguyBaudoin/goop/internal/downloader"
+	"github.com/TanguyBaudoin/goop/internal/installer"
 	"github.com/TanguyBaudoin/goop/internal/paths"
 	"github.com/TanguyBaudoin/goop/internal/vercmp"
 )
@@ -37,7 +38,7 @@ var ReleaseBase = "https://github.com/TanguyBaudoin/goop/releases/latest/downloa
 // image be deleted or overwritten, but it will let it be *renamed*, so
 // the swap is: rename the running goop aside, put the new one in its
 // place, and delete the old one on a later run when nothing has it open.
-const oldSuffix = ".old"
+const legacyOldSuffix = ".old" // bin\goop.exe.old left by the pre-package self-update
 
 // Result describes what Update did.
 type Result struct {
@@ -116,7 +117,7 @@ func checkAt(exe, base, currentVersion string) (Plan, error) {
 
 	// A leftover from a previous update, which could not be deleted then
 	// because it was still the running image.
-	_ = os.Remove(exe + oldSuffix)
+	_ = os.Remove(exe + legacyOldSuffix)
 
 	// checksums.txt is a few dozen bytes, so fetching it first turns
 	// "am I current?" into a cheap question instead of a 14 MB one.
@@ -205,30 +206,22 @@ func (p Plan) Apply(force bool) (Result, error) {
 			newVersion, p.CurrentVersion)
 	}
 
-	if err := swap(p.exe, staged); err != nil {
+	// Lay the version that is running down as a package first, if it is
+	// not already. That converts a flat bin\goop.exe install into the
+	// versioned shape and, usefully, leaves the version being replaced
+	// installed rather than renamed aside -- so it stays a rollback
+	// target instead of becoming a corpse.
+	if migrated, err := installer.MigrateSelfLayout(p.exe, p.CurrentVersion); err != nil {
+		return Result{}, fmt.Errorf("converting the install layout: %w", err)
+	} else if migrated {
+		Logf("moved goop into apps/goop/%s; bin is now a junction", p.CurrentVersion)
+	}
+
+	versionDir, err := installer.InstallSelf(staged, newVersion)
+	if err != nil {
 		return Result{}, err
 	}
-	return Result{OldVersion: p.CurrentVersion, NewVersion: newVersion, Path: p.exe}, nil
-}
-
-// swap puts staged at exe, moving the running image aside first and
-// putting it back if anything goes wrong.
-func swap(exe, staged string) error {
-	old := exe + oldSuffix
-	if err := os.Rename(exe, old); err != nil {
-		return fmt.Errorf("moving the running binary aside: %w -- nothing was replaced", err)
-	}
-	if err := copyFile(staged, exe); err != nil {
-		// Put it back rather than leaving the user with no goop at all.
-		if restoreErr := os.Rename(old, exe); restoreErr != nil {
-			return fmt.Errorf("installing the new binary failed (%w), and restoring the old one also failed (%v) -- it is at %s", err, restoreErr, old)
-		}
-		return fmt.Errorf("installing the new binary: %w -- the previous one was restored", err)
-	}
-	// Expected to fail while this process is still running from it; the
-	// next update removes it.
-	_ = os.Remove(old)
-	return nil
+	return Result{OldVersion: p.CurrentVersion, NewVersion: newVersion, Path: filepath.Join(versionDir, "goop.exe")}, nil
 }
 
 // probeVersion runs the candidate binary and returns the version it

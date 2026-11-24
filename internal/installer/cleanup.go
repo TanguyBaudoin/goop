@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/TanguyBaudoin/goop/internal/paths"
 )
@@ -75,6 +76,12 @@ func Cleanup(only string) (freed int64, removed int, err error) {
 		return 0, 0, err
 	}
 	for _, s := range stale {
+		// The version bin points at is the one executing this cleanup.
+		// Windows will not delete a running image, so without this the
+		// loop logs a failure for goop on every run.
+		if strings.EqualFold(s.App, SelfPackageName) && isRunningSelfVersion(s.Path) {
+			continue
+		}
 		if err := os.RemoveAll(s.Path); err != nil {
 			Logf("%s: couldn't remove %s: %v", s.App, s.Version, err)
 			continue
@@ -95,4 +102,14 @@ func humanBytes(b int64) string {
 	default:
 		return fmt.Sprintf("%.0fKB", float64(b)/float64(1<<10))
 	}
+}
+
+// isRunningSelfVersion reports whether versionDir is what bin currently
+// points at, i.e. the goop that is executing.
+func isRunningSelfVersion(versionDir string) bool {
+	target, isLink := junctionTarget(paths.Bin())
+	if !isLink || target == "" {
+		return false
+	}
+	return sameDir(target, versionDir)
 }

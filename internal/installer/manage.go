@@ -92,6 +92,14 @@ func dependentsOf(appName string) ([]string, error) {
 var ErrNotInstalled = errors.New("not installed")
 
 func Uninstall(appName string, force bool) error {
+	// goop is a package now, which means `goop uninstall goop` parses and
+	// would otherwise be attempted. It cannot succeed: Windows refuses to
+	// delete a running image, so the removal would fail partway -- after
+	// the shims and environment entries are already gone. Refusing is not
+	// a limitation, it is the only outcome that leaves a working install.
+	if strings.EqualFold(appName, SelfPackageName) {
+		return fmt.Errorf("%s is goop itself, and removing the manager with the manager cannot work -- delete the install root by hand if that is what you want", appName)
+	}
 	return uninstallRec(appName, force, nil)
 }
 

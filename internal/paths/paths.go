@@ -337,6 +337,13 @@ func AppVersionStaging(name, version string) string {
 }
 func AppCurrent(name string) string { return filepath.Join(App(name), "current") }
 
+// Bin is where goop's own binary lives, and the directory PATH points
+// at. A junction to apps\goop\<version> since the manager became a
+// package like any other -- see installer.InstallSelf. Deliberately not
+// Shims(): nothing in goop's shim reconciliation may ever touch the
+// manager's own binary.
+func Bin() string { return filepath.Join(Root(), "bin") }
+
 func Shims() string      { return filepath.Join(Root(), "shims") }
 func ShimMaster() string { return filepath.Join(Shims(), "shim-master.exe") }
 func Cache() string      { return filepath.Join(Root(), "cache") }
