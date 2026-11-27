@@ -11,6 +11,69 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
+## [Unreleased]
+
+### Added
+
+- **`goop use <name> [<version>]` points an app at a version already on
+  disk.** Nothing is downloaded, and no manifest is consulted: it moves
+  the `current` junction and rebuilds shims, shortcuts, the module link
+  and the environment from that version's own receipt. With no version it
+  lists what is installed and marks the current one, because whoever
+  reaches for this rarely remembers the exact version string.
+
+  NR-03 claimed "multiple versions side by side, version switching" as
+  met, and the first half was true — every install keeps its version in
+  its own directory with its own receipt. The second half had no command
+  behind it: the only way to move `current` was to install the version
+  again, which needs a resolvable manifest. **A bucket carries one
+  manifest per package, the current one**, so with 1.7.1 and 1.8.2 both
+  sitting on disk, going back to 1.7.1 could still fail because upstream
+  had moved on. Verified exactly that way: two versions installed, the
+  bucket that provided the older one removed, `goop install jq@1.7.1`
+  refused — and `goop use jq 1.7.1` switched anyway, offline.
+
+  It reverts the outgoing version's environment before relinking.
+  `goop reset` reverts and re-applies whatever `current` points at, so
+  relink-then-reset would take back the *incoming* version's entries and
+  leave the outgoing version's behind; `env_add_path` records an
+  already-expanded versioned path, so that stale entry would sit on PATH
+  next to the new one. Switching goop's own version is refused and points
+  at `goop self-update`.
+
+### Changed
+
+- **goop's own binary is now a package, and updating it moves a link.**
+  It sat flat at `<root>\bin\goop.exe`, and self-update replaced it by
+  renaming the running image to `goop.exe.old` and writing the new one in
+  its place — what rustup and deno do. Deleting the renamed file fails
+  while the process that renamed it is still running from it, so the
+  removal is best-effort and the next update is meant to clear it, which
+  never happens when the next update arrives through the installer. Found
+  on the development machine: a 14 MB `bin\goop.exe.old` dated 81 days
+  earlier.
+
+  `bin` is now a junction to `apps\goop\<version>`, the shape Chrome,
+  Edge and nvm-windows use. **PATH never changes** and an update only
+  repoints the link — nothing is renamed, nothing is deleted, no corpse.
+  Which operations Windows allows on a running executable was established
+  by experiment: repointing the junction containing it, renaming the
+  directory containing it, and renaming the file itself all succeed; only
+  deleting it fails.
+
+  Two things follow. The version being replaced stays installed, so it is
+  a rollback target — and `goop use` can now reach it. And goop appears in
+  `goop list` as a well-formed package, with a receipt and an
+  `apps\goop\current` junction, because without those its own `list` and
+  `doctor` would have reported the manager as broken.
+
+  `goop uninstall goop` is refused: Windows will not delete a running
+  image, so it would fail after the shims and environment entries were
+  already gone. `goop cleanup` skips the version `bin` points at.
+
+  Existing installs convert on the first self-update performed by a goop
+  that contains this code; the installer still lays down the flat shape.
+
 ## [0.9.1] — 2026-11-21
 
 Two compatibility defects, both found the same way: by reading Scoop's

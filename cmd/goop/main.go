@@ -151,6 +151,8 @@ func run(args []string) int {
 		return cmdReset(args[1:])
 	case "reinstall":
 		return cmdReinstall(args[1:])
+	case "use":
+		return cmdUse(args[1:])
 	case "doctor":
 		return cmdDoctor(args[1:])
 	case "hold":
@@ -243,6 +245,11 @@ func buildHelp() []helpEntry {
 	cmd("", "interrupted installs, `current` that is no longer a link, shims pointing nowhere,")
 	cmd("", "versions with no install record, orphaned persisted data, dead PATH entries")
 	cmd("", "each finding names the command that fixes it; exit 3 when anything was found")
+	cmd("goop use <name> [<version>]", "point an app at a version already on disk; nothing is downloaded")
+	cmd("", "with no version, lists the versions installed and marks the current one")
+	cmd("", "moves the `current` junction and rebuilds shims/shortcuts/env from that version's record")
+	cmd("", "works offline and whatever the bucket now offers -- which is the point: a bucket keeps")
+	cmd("", "only its current manifest, so reinstalling an older version can no longer resolve")
 	cmd("goop reset <name>... | --all", "rebuild shims/shortcuts/env from the install record; files untouched")
 	cmd("goop reinstall <name>... [-y]", "lay the installed version down again from scratch, files included")
 	cmd("", "same version (`goop update` is what moves one); profile membership and persisted data are kept")
