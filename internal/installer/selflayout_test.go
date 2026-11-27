@@ -321,3 +321,37 @@ func TestIsRunningSelfVersion(t *testing.T) {
 		t.Error("a version bin does not point at must not be treated as running")
 	}
 }
+
+// The migration renames the flat bin aside instead of deleting it,
+// because it holds the running image. That removal fails on the run that
+// migrates and can only succeed later -- so a later run has to attempt
+// it. The first version of this code attempted it only inside the
+// migration path, which runs exactly once, at the only moment it cannot
+// work: the 14 MB corpse stayed forever, which is the defect the whole
+// layout was meant to replace.
+func TestMigrateSelfLayout_ClearsItsOwnLeftoverOnALaterRun(t *testing.T) {
+	isolateRoot(t)
+	exe := stubExe(t, filepath.Join(paths.Bin(), "goop.exe"), "v-0.9.1")
+	if _, err := MigrateSelfLayout(exe, "0.9.1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stand in for what the migrating run could not delete: nothing is
+	// running out of it here, so a later call must clear it.
+	aside := preMigrationPath(paths.Bin())
+	stubExe(t, filepath.Join(aside, "goop.exe"), "v-0.9.1")
+	if _, err := os.Stat(aside); err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+
+	if _, err := MigrateSelfLayout(exe, "0.9.1"); err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	if _, err := os.Stat(aside); !os.IsNotExist(err) {
+		t.Errorf("%s must be cleared by a later run, got %v", aside, err)
+	}
+	// And clearing it must not have disturbed the working install.
+	if got := binExeContents(t); got != "v-0.9.1" {
+		t.Errorf("through bin: %q, want v-0.9.1", got)
+	}
+}

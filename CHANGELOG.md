@@ -11,7 +11,14 @@ install or pinned file is called out explicitly under **Changed**.
 `goop version` reports the running build, including the commit it was
 built from — quote it in bug reports.
 
-## [Unreleased]
+## [0.10.0] — 2026-11-27
+
+goop's own binary becomes a package, which removes the only part of the
+tree that goop did not manage the way it manages everything else — and
+that turned out to be the missing half of version switching. The
+mechanism that lets an update move a link instead of replacing a file is
+the same one that lets you go back to a version the bucket no longer
+offers.
 
 ### Added
 
@@ -73,6 +80,10 @@ built from — quote it in bug reports.
 
   Existing installs convert on the first self-update performed by a goop
   that contains this code; the installer still lays down the flat shape.
+  The converted-away directory is renamed rather than deleted, because it
+  holds the running image, and every later run clears it — attempting
+  that only during the migration meant attempting it at the one moment it
+  could not work, leaving the same 14 MB corpse under a different name.
 
 ## [0.9.1] — 2026-11-21
 
@@ -1184,7 +1195,8 @@ status. The largest: installation is verified by hand rather than by an
 automated harness, the released binary is not Authenticode-signed so
 SmartScreen may warn on first run, and goop has a single maintainer.
 
-[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/TanguyBaudoin/goop/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.10.0
 [0.9.1]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.9.1
 [0.9.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.9.0
 [0.8.0]: https://github.com/TanguyBaudoin/goop/releases/tag/v0.8.0

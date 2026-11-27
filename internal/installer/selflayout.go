@@ -150,11 +150,23 @@ func pointBinAt(versionDir string) error {
 //
 // Idempotent, and safe to call from a goop that is itself running out of
 // the directory being replaced: the old bin is renamed, not deleted,
-// which the experiment above confirms Windows allows. What is left
-// behind holds the running image and so cannot be removed now; it is
-// named so that a later run can clear it.
+// which the experiment above confirms Windows allows.
 func MigrateSelfLayout(runningExe, version string) (bool, error) {
 	bin := paths.Bin()
+
+	// Clear what a previous migration had to leave behind, on every call
+	// and before the already-migrated shortcut below.
+	//
+	// The migration renames the old bin aside rather than deleting it,
+	// because it holds the running image. The removal therefore fails on
+	// the run that does the migrating, and only succeeds afterwards --
+	// so it has to be attempted by runs that have nothing else to do.
+	// Leaving it to the migration path meant it was attempted exactly
+	// once, at the only moment it could not work: the 14 MB corpse
+	// stayed forever, which is the defect this whole layout replaced,
+	// renamed.
+	clearPreMigrationLeftovers(bin)
+
 	if _, isLink := junctionTarget(bin); isLink {
 		return false, nil // already migrated
 	}
@@ -178,8 +190,7 @@ func MigrateSelfLayout(runningExe, version string) (bool, error) {
 		return false, err
 	}
 
-	aside := bin + ".pre-migration"
-	_ = os.RemoveAll(aside) // a previous attempt's leftovers, if its exe is no longer running
+	aside := preMigrationPath(bin)
 	if err := os.Rename(bin, aside); err != nil {
 		return false, fmt.Errorf("moving %s aside: %w -- nothing was changed", bin, err)
 	}
@@ -194,6 +205,28 @@ func MigrateSelfLayout(runningExe, version string) (bool, error) {
 	// succeeds on a later run.
 	_ = os.RemoveAll(aside)
 	return true, nil
+}
+
+// preMigrationPath is where the flat bin directory is renamed to while
+// the versioned layout takes its place.
+func preMigrationPath(bin string) string { return bin + ".pre-migration" }
+
+// clearPreMigrationLeftovers removes the renamed-aside flat bin, if it is
+// there and nothing is running out of it any more.
+//
+// Best-effort by design: on the run that performed the migration this
+// fails, because the directory holds that very process's image, and
+// Windows refuses to delete a running image. Any later run succeeds. It
+// reports nothing on failure -- a leftover that cannot be removed yet is
+// not a fault, and `goop doctor` is where a persistent one would belong.
+func clearPreMigrationLeftovers(bin string) {
+	aside := preMigrationPath(bin)
+	if _, err := os.Lstat(aside); err != nil {
+		return
+	}
+	if err := os.RemoveAll(aside); err == nil {
+		Logf("removed %s, left behind by the move to the versioned layout", filepath.Base(aside))
+	}
 }
 
 // junctionTarget reports where path points, and whether it is a link at
